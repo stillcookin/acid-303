@@ -1,0 +1,149 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  PLUGINVAL_STRICTNESS: 8
+
+jobs:
+  linux-tests:
+    name: Linux (tests + pluginval)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb \
+            libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Render demo
+        run: |
+          ./build/acid_render_artefacts/$BUILD_TYPE/acid_render demo.wav --bars 8 --delay
+
+      - name: pluginval (VST3)
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Linux.zip
+          cmake -E tar xf pluginval.zip
+          chmod +x pluginval
+          xvfb-run -a ./pluginval --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process \
+            --validate build/Acid303_artefacts/$BUILD_TYPE/VST3/Acid303.vst3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-render
+          path: demo.wav
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: Windows
+            os: windows-latest
+            configure: ""
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=$BUILD_TYPE ${{ matrix.configure }}
+
+      - name: Build
+        run: cmake --build build --config $BUILD_TYPE --parallel 4
+
+      - name: Unit tests
+        run: ctest --test-dir build -C $BUILD_TYPE --output-on-failure
+
+      - name: Ad-hoc code sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for b in build/Acid303_artefacts/$BUILD_TYPE/VST3/Acid303.vst3 \
+                   build/Acid303_artefacts/$BUILD_TYPE/AU/Acid303.component \
+                   build/Acid303_artefacts/$BUILD_TYPE/Standalone/Acid303.app; do
+            codesign --force --deep --sign - "$b"
+          done
+
+      - name: auval (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build/Acid303_artefacts/$BUILD_TYPE/AU/Acid303.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v aumu Ac3d Acdl
+
+      - name: pluginval (VST3)
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+            cmake -E tar xf pluginval.zip
+            PV=pluginval.app/Contents/MacOS/pluginval
+          else
+            curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip
+            cmake -E tar xf pluginval.zip
+            PV=./pluginval.exe
+          fi
+          $PV --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process \
+            --validate build/Acid303_artefacts/$BUILD_TYPE/VST3/Acid303.vst3
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cd build/Acid303_artefacts/$BUILD_TYPE
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            cmake -E tar cf ../../../dist/Acid303-macOS.zip --format=zip VST3/Acid303.vst3 AU/Acid303.component Standalone/Acid303.app
+          else
+            cmake -E tar cf ../../../dist/Acid303-Windows.zip --format=zip VST3/Acid303.vst3 Standalone/Acid303.exe
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Acid303-${{ matrix.name }}
+          path: dist/*.zip
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-tests, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: Acid303-*
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

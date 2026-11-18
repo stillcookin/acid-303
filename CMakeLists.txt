@@ -87,7 +87,8 @@ if(ACID_BUILD_PLUGIN)
         Source/ui/PianoRoll.cpp
         Source/ui/GeneratorPanel.cpp
         Source/ui/HeaderBar.cpp
-        Source/ui/ParamPanels.cpp)
+        Source/ui/ParamPanels.cpp
+        Source/ui/MainView.cpp)
 
     target_compile_definitions(Acid303 PUBLIC
         JUCE_VST3_CAN_REPLACE_VST2=0)
