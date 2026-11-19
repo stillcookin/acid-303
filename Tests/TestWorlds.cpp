@@ -377,3 +377,40 @@ TEST_CASE ("Every world renders a stable, audible voice", "[worlds][engine]")
     }
     REQUIRE (peaks[2] != peaks[0]); // the sub and tighter decay change the sound
 }
+
+TEST_CASE ("Every world's effects and chain toggle stay stable with everything up full", "[worlds][engine][fx]")
+{
+    for (int w = 0; w < numWorlds; ++w)
+        for (int alt = 0; alt < 2; ++alt)
+        {
+            Rig rig;
+            rig.set (Param::World, (float) w);
+            rig.set (Param::WorldAlt, (float) alt);
+            rig.set (Param::Resonance, 1.0f);
+            rig.set (Param::DriveOn, 1.0f);   rig.set (Param::Drive, 1.0f);  rig.set (Param::DriveMix, 1.0f);
+            rig.set (Param::DelayOn, 1.0f);   rig.set (Param::DelayFeedback, 0.95f); rig.set (Param::DelayMix, 1.0f);
+            rig.set (Param::ReverbOn, 1.0f);  rig.set (Param::ReverbSize, 1.0f); rig.set (Param::ReverbDamp, 1.0f); rig.set (Param::ReverbMix, 1.0f);
+            double ppq = 0.0;
+            const float peak = rig.run (400, TransportInfo { true, 0.0, 128.0, 48000.0, 512 }, ppq);
+            INFO ("world " << w << " alt " << alt << " peak " << peak);
+            REQUIRE (peak > 0.02f);
+            REQUIRE (peak < 6.0f);
+        }
+}
+
+TEST_CASE ("A world switch lets the previous echoes ring out", "[worlds][engine][fx]")
+{
+    Rig rig;
+    rig.set (Param::WorldQuantize, 0.0f); // immediate
+    rig.set (Param::DelayOn, 1.0f);
+    rig.set (Param::DelayFeedback, 0.8f);
+    rig.set (Param::DelayMix, 1.0f);
+    double ppq = 0.0;
+    rig.run (200, TransportInfo { true, 0.0, 120.0, 48000.0, 512 }, ppq);
+
+    // switch while the transport stops: no new notes, only tails can sound
+    rig.set (Param::World, 1.0f);
+    const float tailPeak = rig.run (20, std::nullopt, ppq);
+    REQUIRE (rig.live.world == 1);
+    REQUIRE (tailPeak > 0.001f);
+}

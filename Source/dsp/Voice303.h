@@ -2,7 +2,9 @@
 
 #include "DiodeLadder.h"
 #include "Envelopes.h"
+#include "Grind.h"
 #include "Oscillator.h"
+#include "Overdrive.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,6 +39,8 @@ public:
         osc.prepare (sr);
         filter.prepare (sr);
         amp.prepare (sr);
+        preDrive.prepare (sr);
+        preGrind.prepare (sr);
         accentEnv.setDecay (0.20, sr);
         glideCoef = onePoleCoef (0.022, sr);       // ≈ 60-70 ms to arrive
         glideCoefLong = onePoleCoef (0.033, sr);   // Space: 1.5× longer slides
@@ -60,6 +64,17 @@ public:
         gliding = false;
         subPhase = 0.0;
         wanderValue = 0.0f;
+        preDrive.reset();
+        preGrind.reset();
+    }
+
+    /** Distortion BEFORE the filter (the HOT and MOLTEN CORE chains):
+        mode 0 off, 1 overdrive, 2 grind; a/b/mix are that unit's three knobs. */
+    void setPreShaper (int mode, float a, float b, float mix)
+    {
+        preMode = mode;
+        if (mode == 1) preDrive.setParams (a, b, mix);
+        else if (mode == 2) preGrind.setParams (a, b, mix);
     }
 
     void setParams (const VoiceParams& p)
@@ -150,7 +165,9 @@ public:
         const float oct = baseOct + megV * envOct * (accentOn ? 0.6f : 1.0f) + sweep * 3.2f + wanderOct;
         filter.setCutoff (170.0 * std::exp2 ((double) oct));
 
-        const float o = osc.process (params.waveform == 0 ? Oscillator::Wave::Saw : Oscillator::Wave::Square);
+        float o = osc.process (params.waveform == 0 ? Oscillator::Wave::Saw : Oscillator::Wave::Square);
+        if (preMode == 1) o = preDrive.process (o) * 0.85f;
+        else if (preMode == 2) o = preGrind.process (o) * 0.85f;
         float y = filter.process (o * 0.9f);
         y *= 1.0f + 0.5f * params.resonance; // partial loudness compensation
 
@@ -189,6 +206,9 @@ private:
     float targetPitch = 36.0f, currentPitch = 36.0f, notePitchOffset = 0.0f;
     bool gliding = false, accentOn = false;
     float glideCoef = 0.001f, glideCoefLong = 0.001f;
+    Overdrive preDrive;
+    Grind preGrind;
+    int preMode = 0;
     double subPhase = 0.0;
     int wanderCounter = 0;
     float wanderTarget = 0.0f, wanderValue = 0.0f, wanderCoef = 0.0001f;

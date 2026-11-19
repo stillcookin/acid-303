@@ -23,7 +23,7 @@ enum class Param : int
     // FX: reverb
     ReverbOn, ReverbSize, ReverbDamp, ReverbMix,
     // World (appended: IDs and saved sets stay compatible)
-    World, WorldQuantize, WorldMidi,
+    World, WorldQuantize, WorldMidi, WorldAlt,
 
     Count
 };

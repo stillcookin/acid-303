@@ -45,6 +45,12 @@ public:
         pp = pingPong;
     }
 
+    /** Stereo width of the repeats: 0 = mono, 1 = as is, 2 = extra wide. */
+    void setWidth (float w) { width = std::clamp (w, 0.0f, 2.0f); }
+
+    /** Adds to the feedback set by setParams (Molten Core: accents push it). */
+    void setFeedbackBoost (float b) { fbBoost = b; }
+
     void process (float* left, float* right, int numSamples)
     {
         for (int n = 0; n < numSamples; ++n)
@@ -58,8 +64,9 @@ public:
             const float inL = left[n], inR = right[n];
             float fbL = filter (dl, lpL, hpXL, hpYL);
             float fbR = filter (dr, lpR, hpXR, hpYR);
-            fbL = std::tanh (fbL * fb * 1.1f) / 1.1f;
-            fbR = std::tanh (fbR * fb * 1.1f) / 1.1f;
+            const float g = std::min (0.97f, fb + fbBoost);
+            fbL = std::tanh (fbL * g * 1.1f) / 1.1f;
+            fbR = std::tanh (fbR * g * 1.1f) / 1.1f;
 
             if (pp)
             {
@@ -75,8 +82,9 @@ public:
 
             if (++write >= size) write = 0;
 
-            left[n] = inL + dl * mix;
-            right[n] = inR + dr * mix;
+            const float m = 0.5f * (dl + dr), s = 0.5f * (dl - dr) * width;
+            left[n] = inL + (m + s) * mix;
+            right[n] = inR + (m - s) * mix;
         }
     }
 
@@ -107,6 +115,7 @@ private:
     float timeSmooth = 0.001f, mixSmooth = 0.001f;
     float fb = 0.4f, lpCoef = 0.5f, hpCoef = 0.99f, mix = 0.0f, targetMix = 0.25f;
     bool pp = true;
+    float width = 1.0f, fbBoost = 0.0f;
     float lpL = 0, lpR = 0, hpXL = 0, hpYL = 0, hpXR = 0, hpYR = 0;
 };
 

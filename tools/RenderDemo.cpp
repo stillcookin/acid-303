@@ -5,7 +5,7 @@
 //   acid_render out.wav [--seed N] [--bars N] [--bpm N] [--scale N] [--root N]
 //                       [--cutoff 0..1] [--reso 0..1] [--envmod 0..1] [--decay 0..1]
 //                       [--accent 0..1] [--drive 0..1] [--delay] [--reverb] [--square]
-//                       [--world 0|1|2]   (Classic, Space, Underground)
+//                       [--world 0|1|2] [--alt]   (Classic, Space, Underground; alt = chain toggle)
 
 #include "core/Engine.h"
 
@@ -25,7 +25,7 @@ int main (int argc, char* argv[])
     {
         std::cerr << "usage: acid_render out.wav [--seed N] [--bars N] [--bpm N] [--scale N] [--root N]\n"
                      "       [--cutoff x] [--reso x] [--envmod x] [--decay x] [--accent x] [--drive x]\n"
-                     "       [--delay] [--reverb] [--square] [--world 0|1|2]\n";
+                     "       [--delay] [--reverb] [--square] [--world 0|1|2] [--alt]\n";
         return 1;
     }
 
@@ -67,6 +67,7 @@ int main (int argc, char* argv[])
     p.reverbOn = flag ("--reverb");
     p.waveform = flag ("--square") ? 1 : 0;
     p.world = world;
+    p.worldAlt = flag ("--alt");
     engine.setParams (p);
     engine.prepare (sr, block);
 

@@ -27,6 +27,12 @@ struct LiveState
     std::atomic<int> midiWorldRequest { 0 };
     std::atomic<unsigned> midiWorldSerial { 0 };
 
+    // last note played, for visuals (the serial changes on every note-on)
+    std::atomic<unsigned> noteSerial { 0 };
+    std::atomic<int> notePitch { 36 };
+    std::atomic<bool> noteAccent { false };
+    std::atomic<bool> noteSlide { false };
+
     // UI → engine
     std::atomic<bool> previewRequested { false };
 };

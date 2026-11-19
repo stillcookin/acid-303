@@ -24,6 +24,15 @@ void Engine::prepare (double sr, int maxBlockSize)
     drive.prepare (sr * osFactor);
     delay.prepare (sr, 4.0);
     reverb.prepare (sr);
+    phase.prepare (sr);
+    echo.prepare (sr, 4.0);
+    shimmer.prepare (sr, maxBlock);
+    grind.prepare (sr * osFactor);
+    pong.prepare (sr, 4.0);
+    cavern.prepare (sr, maxBlock);
+    tail.setSize (2, maxBlock);
+    deepFeedback.setSize (2, maxBlock);
+    tailLength = (int) (sr * 4.0);
 
     volume.reset (sr, 0.02);
     volume.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (params.volumeDb));
@@ -37,6 +46,15 @@ void Engine::reset()
     drive.reset();
     delay.reset();
     reverb.reset();
+    phase.reset();
+    echo.reset();
+    shimmer.reset();
+    grind.reset();
+    pong.reset();
+    cavern.reset();
+    deepFeedback.clear();
+    tailSamples = 0;
+    kick = 0.0f;
     sequencer.reset();
     numHeld = 0;
     previewWasOn = false;
@@ -85,6 +103,15 @@ void Engine::requestWorld (World w, bool fromMidi)
 
 void Engine::applyWorld (World w)
 {
+    if (w != activeWorld && worldInitialised)
+    {
+        // the outgoing world's echoes and reverb keep ringing and fade out
+        tailWorld = activeWorld;
+        tailAlt = params.worldAlt;
+        tailSamples = tailLength;
+    }
+    if (w == tailWorld)
+        tailSamples = 0; // back before the tail ended: its effects simply carry on
     activeWorld = w;
     pendingWorld.reset();
     voice.setParams (voiceParams());
@@ -181,15 +208,112 @@ void Engine::applyEvent (const VoiceEvent& e)
 {
     switch (e.type)
     {
-        case 1: voice.noteOn (e.note, e.accent, e.slide); break;
+        case 1:
+            voice.noteOn (e.note, e.accent, e.slide);
+            if (e.accent) kick = 1.0f;
+            live.notePitch = e.note;
+            live.noteAccent = e.accent;
+            live.noteSlide = e.slide;
+            live.noteSerial.fetch_add (1);
+            break;
         default: voice.noteOff(); break;
     }
 }
 
 void Engine::renderVoice (float* os, int from, int to)
 {
-    for (int i = from; i < to; ++i)
-        os[i] = drive.process (voice.process());
+    switch (postShaper)
+    {
+        case 1:  for (int i = from; i < to; ++i) os[i] = drive.process (voice.process()); break;
+        case 2:  for (int i = from; i < to; ++i) os[i] = grind.process (voice.process()); break;
+        default: for (int i = from; i < to; ++i) os[i] = voice.process() * worldGain; break;
+    }
+}
+
+void Engine::updateFxParams (double bpm)
+{
+    const auto& p = params;
+    const bool alt = p.worldAlt;
+    const float driveMix = p.driveOn ? p.driveMix : 0.0f;
+
+    // oversampled stage: where the drive sits, and whether it runs before the filter
+    switch (activeWorld)
+    {
+        case World::Classic:
+            postShaper = alt ? 0 : 1;
+            worldGain = 1.9f;
+            drive.setParams (p.drive, p.driveTone, driveMix);
+            voice.setPreShaper (alt ? 1 : 0, p.drive, p.driveTone, driveMix);
+            break;
+        case World::Underground:
+        {
+            postShaper = alt ? 0 : 2;
+            worldGain = 3.2f;
+            const float grit = std::min (1.0f, p.drive + (alt ? kick * 0.35f : 0.0f));
+            grind.setParams (grit, p.driveTone, driveMix);
+            voice.setPreShaper (alt ? 2 : 0, grit, p.driveTone, driveMix);
+            break;
+        }
+        case World::Space:
+            postShaper = 0;
+            worldGain = 4.0f; // no distortion stage in Space: match Classic's level
+            voice.setPreShaper (0, 0, 0, 0);
+            break;
+    }
+
+    // stereo stage (all worlds, so a fading tail keeps its settings)
+    const double div = delayDivisionsInBeats()[(size_t) std::clamp (p.delayTime, 0, (int) delayDivisionsInBeats().size() - 1)];
+    const double delaySec = div * 60.0 / std::max (20.0, bpm);
+    const float delayMix = p.delayOn ? p.delayMix : 0.0f, reverbMix = p.reverbOn ? p.reverbMix : 0.0f;
+
+    delay.setParams (delaySec, p.delayFeedback, p.delayTone, delayMix, p.delayPingPong);
+    reverb.setParams (p.reverbSize, p.reverbDamp, reverbMix);
+
+    phase.setParams (p.drive, p.driveTone, driveMix);                                     // Rate, Depth, Mix
+    echo.setParams (delaySec, p.delayFeedback, p.delayTone, delayMix, p.delayPingPong);   // Wow, Tape on/off
+    shimmer.setParams (p.reverbSize, p.reverbDamp, reverbMix);                            // Size, Shimmer, Mix
+
+    pong.setParams (delaySec, p.delayFeedback, p.delayPingPong ? 0.12f : 0.7f, delayMix, true); // Rock Damp
+    pong.setWidth (p.delayTone * 2.0f);                                                   // Width
+    pong.setFeedbackBoost (activeWorld == World::Underground && alt ? kick * 0.15f : 0.0f);
+    cavern.setParams (p.reverbSize, p.reverbDamp, reverbMix);                             // Depth, Drip, Mix
+}
+
+void Engine::runWorldFx (World w, bool alt, float* L, float* R, int n)
+{
+    switch (w)
+    {
+        case World::Classic:
+            delay.process (L, R, n);
+            reverb.process (L, R, n);
+            break;
+        case World::Space:
+            if (alt)
+            {
+                // Deep Space: echo first (with the last block's shimmer fed back in), then phase, then shimmer
+                echo.process (L, R, n, deepFeedback.getReadPointer (0), deepFeedback.getReadPointer (1));
+                phase.process (L, R, n);
+                shimmer.process (L, R, n);
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float* wet = shimmer.lastWet (c);
+                    float* fb = deepFeedback.getWritePointer (c);
+                    for (int i = 0; i < n; ++i)
+                        fb[i] = std::tanh (wet[i] * 0.22f);
+                }
+            }
+            else
+            {
+                phase.process (L, R, n);
+                echo.process (L, R, n);
+                shimmer.process (L, R, n);
+            }
+            break;
+        case World::Underground:
+            pong.process (L, R, n);
+            cavern.process (L, R, n);
+            break;
+    }
 }
 
 void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi,
@@ -216,10 +340,8 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
 
     // per-block parameter updates
     voice.setParams (voiceParams());
-    drive.setParams (params.drive, params.driveTone, params.driveOn ? params.driveMix : 0.0f);
     sequencer.setSwing (params.swing);
     sequencer.setGate (params.gate);
-    reverb.setParams (params.reverbSize, params.reverbDamp, params.reverbOn ? params.reverbMix : 0.0f);
     volume.setTargetValue (juce::Decibels::decibelsToGain (params.volumeDb, -60.0f));
 
     if (params.mode != lastMode)
@@ -304,6 +426,9 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
         if (preview)
             previewPpq += (double) n * (t.bpm / 60.0) / sampleRate;
 
+        updateFxParams (t.bpm);
+        kick *= (float) std::exp (-(double) n / (0.25 * sampleRate));
+
         // ---- voice + drive at 2x
         mono.clear();
         juce::dsp::AudioBlock<float> monoBlock (mono);
@@ -329,11 +454,31 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
         std::copy (m, m + n, L);
         std::copy (m, m + n, R);
 
-        const double div = delayDivisionsInBeats()[(size_t) std::clamp (params.delayTime, 0, (int) delayDivisionsInBeats().size() - 1)];
-        delay.setParams (div * 60.0 / std::max (20.0, t.bpm), params.delayFeedback, params.delayTone,
-                         params.delayOn ? params.delayMix : 0.0f, params.delayPingPong);
-        delay.process (L, R, n);
-        reverb.process (L, R, n);
+        runWorldFx (activeWorld, params.worldAlt, L, R, n);
+
+        // the previous world's tail, fading out over a few seconds
+        if (tailSamples > 0 && tailWorld != activeWorld)
+        {
+            float* tl = tail.getWritePointer (0);
+            float* tr = tail.getWritePointer (1);
+            std::fill (tl, tl + n, 0.0f);
+            std::fill (tr, tr + n, 0.0f);
+            runWorldFx (tailWorld, tailAlt, tl, tr, n);
+            for (int i = 0; i < n; ++i)
+            {
+                const float g = (float) std::max (0, tailSamples - i) / (float) tailLength;
+                L[i] += tl[i] * g;
+                R[i] += tr[i] * g;
+            }
+            tailSamples -= n;
+            if (tailSamples <= 0)
+            {
+                // silence the outgoing world's effects so they start clean next time
+                if (tailWorld == World::Classic) { delay.reset(); reverb.reset(); }
+                else if (tailWorld == World::Space) { echo.reset(); shimmer.reset(); phase.reset(); deepFeedback.clear(); }
+                else { pong.reset(); cavern.reset(); }
+            }
+        }
 
         // ---- output
         const int numCh = buffer.getNumChannels();
