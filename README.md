@@ -33,6 +33,35 @@ a built-in overdrive → delay → reverb chain.
 - **FX**: asymmetric overdrive with tone, tempo-synced delay (1/32 … 1/2, dotted/triplet,
   ping-pong, damping), reverb. All parameters are automatable.
 
+## Worlds
+
+Acid303 has three **worlds**, picked with the **World** selector in the top bar (or any of
+the MIDI methods below). Classic is the instrument as designed; the other two nudge it in a
+direction — subtle changes meant to suggest new ideas, not effects presets.
+
+| | Classic | Space | Underground |
+|---|---|---|---|
+| Scales | the original eight | Lydian, Whole Tone, Dorian | Harmonic Minor, Phrygian Dominant, Diminished (half-whole) |
+| Generator | as before | sparser, fewer accents, longer slides and ties, phrase left open on the last step | a tense note (leading tone or ♭2) slides into the root on beats 1 and 3 |
+| Voice | as before | slides 1.5× longer, softer accents, slow filter drift | sine sub one octave down, tighter decay, harder accent |
+| Character knob | **Age**: pitch drift | **Drift**: pitch + filter wander | **Sub**: sub level |
+
+**Your pattern is kept.** Switching worlds retunes what plays: notes outside the new scale
+move to the nearest scale note, locked steps never move, and switching back to Classic
+restores every original note (the pattern you wrote is stored untouched). Each world
+remembers the scale you last chose in it.
+
+**Switching from MIDI** (on by default; turn off with the *World MIDI* parameter):
+
+- **Automation / MIDI Map**: the *World* parameter, like any other.
+- **CC 102**: 0–42 Classic, 43–85 Space, 86–127 Underground.
+- **Program change**: 1, 2, 3 in Live's clip *Pgm* chooser (MIDI programs 0, 1, 2).
+- **Keyswitch notes**: C-2, C#-2, D-2 in Live (MIDI notes 0, 1, 2). They never play or
+  transpose, so they work in every play mode.
+
+While the transport runs, a change lands on the **next bar** by default (*World Switch* in
+the Groove panel: Immediate / Next Beat / Next Bar), sample-accurately.
+
 ## Installing a build
 
 Download the zip for your platform from the GitHub Actions artifacts or Releases page.
@@ -65,7 +94,8 @@ which is handy for fast DSP iteration.
 
 ### Offline render tool
 
-`acid_render` renders a pattern through the full engine to a WAV file, with no DAW needed:
+`acid_render` renders a pattern through the full engine to a WAV file, with no DAW needed
+(add `--world 1` or `--world 2` for Space or Underground):
 
 ```bash
 ./build/acid_render_artefacts/Release/acid_render out.wav --seed 99 --bars 8 --reso 0.9 --envmod 0.8 --delay

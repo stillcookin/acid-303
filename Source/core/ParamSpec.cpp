@@ -41,6 +41,10 @@ static std::array<ParamSpec, numParams> makeSpecs()
         ParamSpec { Param::ReverbSize,    K::Float,  "reverb_size","Size",       "reverb", 0, 1, 0.5f },
         ParamSpec { Param::ReverbDamp,    K::Float,  "reverb_damp","Damp",       "reverb", 0, 1, 0.5f },
         ParamSpec { Param::ReverbMix,     K::Float,  "reverb_mix", "Mix",        "reverb", 0, 1, 0.2f },
+
+        ParamSpec { Param::World,         K::Choice, "world",      "World",      "world", 0, 2, 0, -1, "", { "Classic", "Space", "Underground" } },
+        ParamSpec { Param::WorldQuantize, K::Choice, "world_quant","World Switch","world", 0, 2, 2, -1, "", { "Immediate", "Next Beat", "Next Bar" } },
+        ParamSpec { Param::WorldMidi,     K::Bool,   "world_midi", "World MIDI", "world", 0, 1, 1 },
     };
 
     for (int i = 0; i < numParams; ++i)

@@ -69,6 +69,21 @@ expose `ParamSpec` and the APVTS through JUCE's web relays, and wrap the
 `PatternController` methods as native functions that send the pattern as JSON on
 `patternChanged`.
 
+## Worlds
+
+`seq/World.h` defines the worlds (Classic, Space, Underground), the scales each offers and
+the MIDI mapping. The *World* parameter is a request; the `Engine` owns the active world
+and applies a request immediately when stopped, or exactly on the next beat/bar line while
+the transport runs (it splits the sub-block at that line). MIDI requests (CC 102, program
+change, keyswitch notes 0–2) go through the same path and are mirrored into the parameter by
+`AcidProcessor`'s timer so the host and UI follow.
+
+`PatternController` stores patterns **as written** and publishes one retuned copy per world
+(`WorldPatterns`) through the mailbox, so the engine changes pitches on the bar without
+waiting for the message thread, and switching back to Classic restores the original notes.
+Edits always apply to the written pattern; `pattern()` returns what plays in the current
+world, `sourcePattern()` what was written.
+
 ## Threading
 
 | Thread | Touches |

@@ -18,6 +18,11 @@ const std::vector<Scale>& scales()
         { "Blues",          { 0, 3, 5, 6, 7, 10 } },
         { "Major",          { 0, 2, 4, 5, 7, 9, 11 } },
         { "Chromatic",      { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+        // added with worlds; append only, indices are saved with the set
+        { "Lydian",         { 0, 2, 4, 6, 7, 9, 11 } },
+        { "Whole Tone",     { 0, 2, 4, 6, 8, 10 } },
+        { "Phrygian Dom",   { 0, 1, 4, 5, 7, 8, 10 } },
+        { "Diminished HW",  { 0, 1, 3, 4, 6, 7, 9, 10 } },
     };
     return s;
 }
@@ -40,6 +45,9 @@ juce::ValueTree GeneratorSettings::toValueTree() const
     v.setProperty ("range", range, nullptr);
     v.setProperty ("mutate", mutateAmount, nullptr);
     v.setProperty ("seed", (juce::int64) seed, nullptr);
+    v.setProperty ("scaleClassic", worldScale[0], nullptr);
+    v.setProperty ("scaleSpace", worldScale[1], nullptr);
+    v.setProperty ("scaleUnderground", worldScale[2], nullptr);
     return v;
 }
 
@@ -58,6 +66,16 @@ GeneratorSettings GeneratorSettings::fromValueTree (const juce::ValueTree& v)
     g.range = std::clamp ((int) v.getProperty ("range", 1), 1, 2);
     g.mutateAmount = f01 ("mutate", g.mutateAmount);
     g.seed = (uint32_t) (juce::int64) v.getProperty ("seed", 303);
+    const char* ids[] { "scaleClassic", "scaleSpace", "scaleUnderground" };
+    for (int w = 0; w < numWorlds; ++w)
+    {
+        const auto& allowed = worldScales (worldFromIndex (w));
+        const int stored = (int) v.getProperty (ids[w], g.worldScale[(size_t) w]);
+        g.worldScale[(size_t) w] = std::find (allowed.begin(), allowed.end(), stored) != allowed.end() ? stored : allowed.front();
+    }
+    // older sets: the saved scale is the Classic world's scale
+    if (! v.hasProperty ("scaleClassic"))
+        g.worldScale[0] = g.scale;
     return g;
 }
 
@@ -180,8 +198,102 @@ namespace
     }
 }
 
+namespace
+{
+    /** Space: sparser, softer, longer, gliding lines. Underground keeps the knobs as set. */
+    GeneratorSettings phrasingFor (const GeneratorSettings& in)
+    {
+        GeneratorSettings g = in;
+        if (in.world == World::Space)
+        {
+            g.density = in.density * 0.85f;
+            g.accent = in.accent * 0.4f;
+            g.slide = std::min (1.0f, in.slide * 1.6f + 0.1f);
+        }
+        return g;
+    }
+
+    float tieChance (const GeneratorSettings& gs) { return gs.world == World::Space ? 0.25f : 0.08f; }
+
+    /** Space: leave the phrase open at the end so the loop never quite resolves. */
+    void applySpacePhrasing (Rng&, Pattern& p)
+    {
+        if (p.length >= 8)
+        {
+            auto& last = p.steps[(size_t) p.length - 1];
+            last = Step {};
+        }
+    }
+
+    /** Underground: a tense note on the last 16th of every beat (leading tone
+        below the root, or the flat 2nd above it) that slides into the root on
+        beats 1 and 3. */
+    void applyTensionResolution (Rng& rng, Pattern& p, const GeneratorSettings& gs)
+    {
+        auto setAbs = [] (Step& s, int abs)
+        {
+            const int o = (int) std::floor (abs / 12.0);
+            s.semitone = (int8_t) (abs - 12 * o);
+            s.octave = (int8_t) std::clamp (o, Pattern::minOctave, Pattern::maxOctave);
+        };
+        const bool hasLeading = Generator::isInScale (gs.root + 11, gs);
+        const bool hasFlat2 = Generator::isInScale (gs.root + 1, gs);
+
+        for (int i = 0; i < p.length; ++i)
+        {
+            auto& s = p.steps[(size_t) i];
+            if (i % 8 == 0)
+            {
+                s.gate = Gate::Note;
+                s.slide = false;
+                setAbs (s, gs.root);
+            }
+            else if (i % 4 == 3 && ((i + 1) % 8 == 0 || rng.chance (0.7f))) // always before beats 1 and 3
+            {
+                const bool leading = hasLeading && (! hasFlat2 || rng.chance (0.65f));
+                s.gate = Gate::Note;
+                s.accent = true;
+                setAbs (s, leading ? gs.root - 1 : gs.root + 1);
+                // glide into the resolution when the next step lands on the root
+                s.slide = (i + 1) % 8 == 0 && i + 1 < p.length;
+            }
+        }
+    }
+}
+
 namespace Generator
 {
+
+Pattern retune (const Pattern& source, const GeneratorSettings& gs)
+{
+    Pattern p = source;
+    for (int i = 0; i < Pattern::maxSteps; ++i)
+    {
+        auto& s = p.steps[(size_t) i];
+        if (s.locked || s.gate == Gate::Rest || isInScale (s.semitone, gs))
+            continue;
+
+        const int abs = s.semitone + 12 * s.octave;
+        for (int d = 1; d <= 6; ++d)
+        {
+            int target = 1000;
+            if (isInScale (abs - d, gs)) target = abs - d;          // prefer downwards
+            else if (isInScale (abs + d, gs)) target = abs + d;
+            if (target == 1000) continue;
+
+            const int o = (int) std::floor (target / 12.0);
+            int semi = target - 12 * o;
+            int oct = o;
+            // keep "C above" notes (semitone 12) in the same row when they land on C
+            if (s.semitone == 12 && semi == 0 && oct == s.octave + 1) { semi = 12; oct = s.octave; }
+            if (oct < Pattern::minOctave || oct > Pattern::maxOctave) continue;
+            s.semitone = (int8_t) semi;
+            s.octave = (int8_t) oct;
+            break;
+        }
+    }
+    return p;
+}
 
 bool isInScale (int semitone, const GeneratorSettings& gs)
 {
@@ -211,8 +323,9 @@ void tidy (Pattern& p)
     }
 }
 
-Pattern generate (const Pattern& current, const GeneratorSettings& gs, uint32_t seed)
+Pattern generate (const Pattern& current, const GeneratorSettings& settings, uint32_t seed)
 {
+    const GeneratorSettings gs = phrasingFor (settings);
     Rng rng (seed);
     Pattern p;
     p.length = current.length;
@@ -232,7 +345,7 @@ Pattern generate (const Pattern& current, const GeneratorSettings& gs, uint32_t 
 
         auto& s = motif[(size_t) j];
         if (rng.chance (gateProb))
-            s.gate = (j > 0 && motif[(size_t) j - 1].gate != Gate::Rest && rng.chance (0.08f)) ? Gate::Tie : Gate::Note;
+            s.gate = (j > 0 && motif[(size_t) j - 1].gate != Gate::Rest && rng.chance (tieChance (gs))) ? Gate::Tie : Gate::Note;
 
         if (j == 0)
             deg = rng.weighted<int> ({ { 0, 0.6f }, { fifth, 0.15f }, { (int) scaleOf (gs).intervals.size(), 0.1f }, { walk (rng, 0, gs), 0.15f } });
@@ -291,6 +404,11 @@ Pattern generate (const Pattern& current, const GeneratorSettings& gs, uint32_t 
     tidy (p);
     rollAccents (rng, p, gs, current);
     rollSlides (rng, p, gs, current);
+
+    if (gs.world == World::Space)
+        applySpacePhrasing (rng, p);
+    else if (gs.world == World::Underground)
+        applyTensionResolution (rng, p, gs);
 
     restoreLocked (current, p);
     tidy (p);

@@ -8,7 +8,8 @@
 /** Thin host adapter: owns the parameters (APVTS) and the GUI-free engine
     objects, converts host transport/parameters for the Engine, and persists
     state. Contains no DSP or sequencing logic of its own. */
-class AcidProcessor final : public juce::AudioProcessor
+class AcidProcessor final : public juce::AudioProcessor,
+                            private juce::Timer
 {
 public:
     AcidProcessor();
@@ -44,6 +45,10 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
+    /** Message thread: mirrors the engine's active world into the
+        PatternController, and MIDI world requests into the World parameter. */
+    void timerCallback() override;
+
     acid::PatternMailbox mailbox;
     acid::LiveState live;
     acid::PatternController patterns { mailbox };
@@ -51,6 +56,7 @@ private:
 
     juce::AudioProcessorValueTreeState apvts;
     std::array<std::atomic<float>*, acid::numParams> rawParams {};
+    unsigned lastMidiWorldSerial = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AcidProcessor)
 };

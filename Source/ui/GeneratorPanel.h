@@ -34,6 +34,7 @@ private:
                                  std::function<void()> fn);
 
     UiContext ctx;
+    int scaleListWorld = -1; ///< world whose scales are currently listed in scaleBox
     juce::ComboBox scaleBox, rootBox, rangeBox;
     std::array<Knob, 5> knobs; // density, accent, slide, octave, mutate
     juce::TextButton generateButton, mutateButton, accentsButton, slidesButton, octavesButton,

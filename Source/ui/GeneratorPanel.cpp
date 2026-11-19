@@ -5,8 +5,6 @@ namespace acid::ui
 
 GeneratorPanel::GeneratorPanel (UiContext c) : ctx (c)
 {
-    for (int i = 0; i < (int) scales().size(); ++i)
-        scaleBox.addItem (scales()[(size_t) i].name, i + 1);
     for (int i = 0; i < 12; ++i)
         rootBox.addItem (rootNames()[(size_t) i], i + 1);
     rangeBox.addItem ("1 Oct", 1);
@@ -90,6 +88,14 @@ void GeneratorPanel::refresh()
 {
     const juce::ScopedValueSetter<bool> svs (updating, true);
     const auto& gs = ctx.patterns.generatorSettings();
+    // each world offers its own scales (item id = index into scales() + 1)
+    if (indexOf (gs.world) != scaleListWorld)
+    {
+        scaleListWorld = indexOf (gs.world);
+        scaleBox.clear (juce::dontSendNotification);
+        for (int idx : worldScales (gs.world))
+            scaleBox.addItem (scales()[(size_t) idx].name, idx + 1);
+    }
     scaleBox.setSelectedId (gs.scale + 1, juce::dontSendNotification);
     rootBox.setSelectedId (gs.root + 1, juce::dontSendNotification);
     rangeBox.setSelectedId (gs.range, juce::dontSendNotification);

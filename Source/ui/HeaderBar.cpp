@@ -44,10 +44,14 @@ void MidiDragSource::mouseDrag (const juce::MouseEvent& e)
 // --------------------------------------------------------------------------
 
 HeaderBar::HeaderBar (UiContext c)
-    : ctx (c), mode (c.params, Param::Mode), dragSource (c)
+    : ctx (c), mode (c.params, Param::Mode), world (c.params, Param::World), dragSource (c)
 {
     mode.setShowCaption (false);
     addAndMakeVisible (mode);
+    world.setShowCaption (false);
+    world.setTooltip ("World: Classic, Space or Underground. Also switchable from MIDI: CC 102, "
+                      "program change 1-3, or keys C-2 / C#-2 / D-2");
+    addAndMakeVisible (world);
 
     for (int i = 0; i < (int) slotButtons.size(); ++i)
     {
@@ -106,6 +110,8 @@ void HeaderBar::timerCallback()
     else if (ctx.live.running.load()) s << "  |  PREVIEW";
     const int t = ctx.live.transpose.load();
     if (t != 0) s << "  |  " << (t > 0 ? "+" : "") << t << " st";
+    const int pending = ctx.live.pendingWorld.load();
+    if (pending >= 0) s << "  |  > " << juce::String (worldName (worldFromIndex (pending))).toUpperCase();
 
     const float m = juce::jlimit (0.0f, 1.0f, ctx.live.outputPeak.load());
     if (s != status || std::abs (m - meter) > 0.01f)
@@ -151,7 +157,9 @@ void HeaderBar::resized()
     r.removeFromRight (160);
 
     mode.setBounds (r.removeFromLeft (132).withSizeKeepingCentre (132, 26));
-    r.removeFromLeft (10);
+    r.removeFromLeft (8);
+    world.setBounds (r.removeFromLeft (118).withSizeKeepingCentre (118, 26));
+    r.removeFromLeft (8);
 
     dragSource.setBounds (r.removeFromRight (84).withSizeKeepingCentre (84, 28));
     r.removeFromRight (6);

@@ -3,23 +3,44 @@
 namespace acid::ui
 {
 
-MainView::MainView (UiContext ctx)
-    : header (ctx),
-      voice (ctx.params, "VOICE",
+MainView::MainView (UiContext c)
+    : ctx (c),
+      header (c),
+      voice (c.params, "VOICE",
              { Param::Waveform, Param::Tune, Param::Cutoff, Param::Resonance, Param::EnvMod,
                Param::Decay, Param::Accent, Param::Drift }),
-      seq (ctx.params, "GROOVE / OUT", { Param::Swing, Param::Gate, Param::Volume }),
-      roll (ctx),
-      generator (ctx),
-      drive (ctx.params, "OVERDRIVE", { Param::Drive, Param::DriveTone, Param::DriveMix }, Param::DriveOn),
-      delay (ctx.params, "DELAY", { Param::DelayTime, Param::DelayFeedback, Param::DelayTone, Param::DelayMix, Param::DelayPingPong },
+      seq (c.params, "GROOVE / OUT", { Param::WorldQuantize, Param::Swing, Param::Gate, Param::Volume }),
+      roll (c),
+      generator (c),
+      drive (c.params, "OVERDRIVE", { Param::Drive, Param::DriveTone, Param::DriveMix }, Param::DriveOn),
+      delay (c.params, "DELAY", { Param::DelayTime, Param::DelayFeedback, Param::DelayTone, Param::DelayMix, Param::DelayPingPong },
              Param::DelayOn),
-      reverb (ctx.params, "REVERB", { Param::ReverbSize, Param::ReverbDamp, Param::ReverbMix }, Param::ReverbOn)
+      reverb (c.params, "REVERB", { Param::ReverbSize, Param::ReverbDamp, Param::ReverbMix }, Param::ReverbOn)
 {
     setLookAndFeel (&lnf);
-    for (auto* c : std::initializer_list<juce::Component*> { &header, &voice, &seq, &roll, &generator, &drive, &delay, &reverb })
-        addAndMakeVisible (c);
+    for (auto* comp : std::initializer_list<juce::Component*> { &header, &voice, &seq, &roll, &generator, &drive, &delay, &reverb })
+        addAndMakeVisible (comp);
+    if (auto* q = seq.controlFor (Param::WorldQuantize))
+        q->setTooltip ("When a world change lands while playing: immediately, on the next beat, or on the next bar");
     setSize (theme::baseWidth, theme::baseHeight);
+    timerCallback();
+    startTimerHz (10);
+}
+
+void MainView::timerCallback()
+{
+    // the character knob means something different in each world
+    const int w = ctx.live.world.load();
+    if (w == shownWorld)
+        return;
+    shownWorld = w;
+    if (auto* k = voice.controlFor (Param::Drift))
+    {
+        const auto world = worldFromIndex (w);
+        k->setCaption (world == World::Space ? "DRIFT" : (world == World::Underground ? "SUB" : "AGE"));
+        k->setTooltip (world == World::Space ? "Drift: pitch and slow filter wander"
+                       : (world == World::Underground ? "Sub: sine one octave down" : "Age: analogue pitch drift"));
+    }
 }
 
 MainView::~MainView()
@@ -40,7 +61,7 @@ void MainView::resized()
     r.reduce (gap, gap);
 
     auto top = r.removeFromTop (118);
-    seq.setBounds (top.removeFromRight (250));
+    seq.setBounds (top.removeFromRight (330));
     top.removeFromRight (gap);
     voice.setBounds (top);
     r.removeFromTop (gap);

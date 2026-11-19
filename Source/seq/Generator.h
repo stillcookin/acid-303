@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Pattern.h"
+#include "World.h"
 
 #include <cstdint>
 #include <vector>
@@ -30,6 +31,13 @@ struct GeneratorSettings
     float mutateAmount = 0.25f;
     uint32_t seed = 303;  ///< seed of the last generate()
 
+    /** The active world shapes how generate() phrases. Set by PatternController
+        from the World parameter; not saved (the parameter is). */
+    World world = World::Classic;
+    /** The scale last chosen in each world (indices into scales()), so switching
+        back to a world brings its scale back. `scale` is the active world's entry. */
+    std::array<int, numWorlds> worldScale { 0, 8, 3 };
+
     bool operator== (const GeneratorSettings&) const = default;
 
     juce::ValueTree toValueTree() const;
@@ -53,6 +61,12 @@ namespace Generator
 
     /** True if (root + semitone) is in the scale. */
     bool isInScale (int semitone, const GeneratorSettings&);
+
+    /** Moves every unlocked note that is outside the scale to the nearest scale
+        note (ties go downwards). In-scale notes, rests, rhythm, accents and
+        slides are untouched, so retuning back to a wider scale restores nothing
+        by itself: PatternController keeps the source pattern for that. */
+    Pattern retune (const Pattern& source, const GeneratorSettings&);
 }
 
 } // namespace acid

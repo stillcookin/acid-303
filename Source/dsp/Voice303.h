@@ -20,7 +20,9 @@ struct VoiceParams
     float envMod = 0.5f;     ///< 0..1
     float decay = 0.4f;      ///< 0..1 → 200 ms .. 2 s
     float accent = 0.6f;     ///< 0..1
-    float drift = 0.15f;     ///< 0..1 analogue pitch instability
+    float drift = 0.15f;     ///< 0..1 the "character" knob: Classic = pitch drift (Age),
+                             ///< Space = pitch + slow filter drift, Underground = sub level
+    int world = 0;           ///< 0 Classic, 1 Space, 2 Underground (acid::World)
 };
 
 /** Monophonic 303-style voice: osc → diode ladder → VCA, with MEG, accent
@@ -37,6 +39,8 @@ public:
         amp.prepare (sr);
         accentEnv.setDecay (0.20, sr);
         glideCoef = onePoleCoef (0.022, sr);       // ≈ 60-70 ms to arrive
+        glideCoefLong = onePoleCoef (0.033, sr);   // Space: 1.5× longer slides
+        wanderCoef = onePoleCoef (1.5, sr);
         sweepChargeCoef = onePoleCoef (0.035, sr);
         sweepDischargeCoef = onePoleCoef (0.180, sr);
         driftCoef = onePoleCoef (0.25, sr);
@@ -54,6 +58,8 @@ public:
         sweep = 0.0f;
         accentOn = false;
         gliding = false;
+        subPhase = 0.0;
+        wanderValue = 0.0f;
     }
 
     void setParams (const VoiceParams& p)
@@ -77,8 +83,10 @@ public:
 
         gliding = false;
         currentPitch = targetPitch;
-        notePitchOffset = (nextRandom() * 2.0f - 1.0f) * 0.06f * params.drift; // per-note tuning error
-        const double decaySec = accent ? 0.20 : 0.2 * std::pow (10.0, (double) params.decay);
+        notePitchOffset = (nextRandom() * 2.0f - 1.0f) * 0.06f * pitchDrift(); // per-note tuning error
+        double decaySec = accent ? 0.20 : 0.2 * std::pow (10.0, (double) params.decay);
+        if (params.world == 2 && ! accent)
+            decaySec *= 0.85; // Underground: tighter
         meg.setDecay (decaySec, sr);
         meg.trigger();
         if (accent)
@@ -96,7 +104,7 @@ public:
     {
         // pitch: slide + drift
         if (gliding)
-            currentPitch += (targetPitch - currentPitch) * glideCoef;
+            currentPitch += (targetPitch - currentPitch) * (params.world == 1 ? glideCoefLong : glideCoef);
 
         if (--driftCounter <= 0)
         {
@@ -105,8 +113,24 @@ public:
         }
         driftValue += (driftTarget - driftValue) * driftCoef;
 
-        const float pitch = currentPitch + params.tune + notePitchOffset + driftValue * 0.12f * params.drift;
-        osc.setFrequency (440.0 * std::exp2 ((pitch - 69.0) / 12.0));
+        const float pitch = currentPitch + params.tune + notePitchOffset + driftValue * 0.12f * pitchDrift();
+        const double freq = 440.0 * std::exp2 ((pitch - 69.0) / 12.0);
+        osc.setFrequency (freq);
+
+        // Space: the filter wanders slowly (a new target every ~2 s, eased over ~1.5 s)
+        if (params.world == 1)
+        {
+            if (--wanderCounter <= 0)
+            {
+                wanderCounter = (int) (sr * 2.0);
+                wanderTarget = nextRandom() * 2.0f - 1.0f;
+            }
+            wanderValue += (wanderTarget - wanderValue) * wanderCoef;
+        }
+        else
+        {
+            wanderValue *= 0.9999f;
+        }
 
         // smoothed knob values (avoid zipper noise)
         cutoffS += (params.cutoff - cutoffS) * paramSmoothCoef;
@@ -122,19 +146,33 @@ public:
         // filter frequency (303-style: env mod also pulls the base cutoff down)
         const float envOct = envModS * 4.8f;
         const float baseOct = cutoffS * 4.6f - envModS * 1.1f;
-        const float oct = baseOct + megV * envOct * (accentOn ? 0.6f : 1.0f) + sweep * 3.2f;
+        const float wanderOct = wanderValue * 0.4f * params.drift; // ≈ ±0.14 oct at the default
+        const float oct = baseOct + megV * envOct * (accentOn ? 0.6f : 1.0f) + sweep * 3.2f + wanderOct;
         filter.setCutoff (170.0 * std::exp2 ((double) oct));
 
         const float o = osc.process (params.waveform == 0 ? Oscillator::Wave::Saw : Oscillator::Wave::Square);
         float y = filter.process (o * 0.9f);
         y *= 1.0f + 0.5f * params.resonance; // partial loudness compensation
 
+        // Underground: a clean sine one octave down, level on the character knob
+        if (params.world == 2)
+        {
+            subPhase += freq * 0.5 / sr;
+            subPhase -= std::floor (subPhase);
+            y += (float) std::sin (subPhase * 6.283185307179586) * params.drift * 0.5f;
+        }
+
         const float ampV = amp.process();
-        const float accentGain = 1.0f + (accentOn ? accentS * (0.35f + 0.9f * accV) : 0.0f);
-        return y * ampV * accentGain * 0.55f;
+        const float accentAmt = accentS * (params.world == 1 ? 0.8f : (params.world == 2 ? 1.1f : 1.0f));
+        const float accentGain = 1.0f + (accentOn ? accentAmt * (0.35f + 0.9f * accV) : 0.0f);
+        const float worldTrim = params.world == 2 ? 0.88f : 1.0f; // keep Underground (sub + accent) level with Classic
+        return y * ampV * accentGain * 0.55f * worldTrim;
     }
 
 private:
+    /** Underground uses the character knob for the sub, so pitch drift stays subtle there. */
+    float pitchDrift() const { return params.world == 2 ? 0.05f : params.drift; }
+
     float nextRandom()
     {
         rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
@@ -150,7 +188,10 @@ private:
 
     float targetPitch = 36.0f, currentPitch = 36.0f, notePitchOffset = 0.0f;
     bool gliding = false, accentOn = false;
-    float glideCoef = 0.001f;
+    float glideCoef = 0.001f, glideCoefLong = 0.001f;
+    double subPhase = 0.0;
+    int wanderCounter = 0;
+    float wanderTarget = 0.0f, wanderValue = 0.0f, wanderCoef = 0.0001f;
     float sweep = 0.0f, sweepChargeCoef = 0.001f, sweepDischargeCoef = 0.0001f;
     float cutoffS = 0.35f, envModS = 0.5f, accentS = 0.6f, paramSmoothCoef = 0.01f;
 

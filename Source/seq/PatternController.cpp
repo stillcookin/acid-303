@@ -10,7 +10,25 @@ PatternController::PatternController (PatternMailbox& mailboxToUse)
     // factory content: every slot starts with a different generated line
     for (int s = 0; s < PatternBank::numSlots; ++s)
         bank.slots[(size_t) s] = Generator::generate (Pattern {}, genSettings, 303u + (uint32_t) s * 7919u);
-    mailbox.publish (pattern());
+    refreshPlaying();
+    WorldPatterns all;
+    for (int w = 0; w < numWorlds; ++w)
+        all[(size_t) w] = patternForWorld (worldFromIndex (w));
+    mailbox.publish (all);
+}
+
+Pattern PatternController::patternForWorld (World w) const
+{
+    if (w == World::Classic)
+        return sourcePattern();
+    GeneratorSettings gs = genSettings;
+    gs.scale = gs.worldScale[(size_t) indexOf (w)];
+    return Generator::retune (sourcePattern(), gs);
+}
+
+void PatternController::refreshPlaying()
+{
+    playing = patternForWorld (genSettings.world);
 }
 
 // ---------------------------------------------------------------- internals
@@ -22,7 +40,7 @@ void PatternController::pushUndo()
         if (gestureRecorded) return;
         gestureRecorded = true;
     }
-    undoStack.push_back ({ slot, pattern() });
+    undoStack.push_back ({ slot, sourcePattern() });
     if (undoStack.size() > maxHistory)
         undoStack.erase (undoStack.begin());
     redoStack.clear();
@@ -30,7 +48,7 @@ void PatternController::pushUndo()
 
 void PatternController::commit (const Pattern& newPattern)
 {
-    if (newPattern == pattern())
+    if (newPattern == sourcePattern())
         return;
     pushUndo();
     bank.slots[(size_t) slot] = newPattern;
@@ -39,14 +57,18 @@ void PatternController::commit (const Pattern& newPattern)
 
 void PatternController::modify (const std::function<void (Pattern&)>& fn)
 {
-    Pattern p = pattern();
+    Pattern p = sourcePattern();
     fn (p);
     commit (p);
 }
 
 void PatternController::publishAndNotify()
 {
-    mailbox.publish (pattern());
+    WorldPatterns all;
+    for (int w = 0; w < numWorlds; ++w)
+        all[(size_t) w] = patternForWorld (worldFromIndex (w));
+    playing = all[(size_t) indexOf (genSettings.world)];
+    mailbox.publish (all);
     notifyPattern();
 }
 
@@ -78,10 +100,12 @@ void PatternController::endGesture() { inGesture = false; gestureRecorded = fals
 
 void PatternController::toggleNote (int step, int semitone)
 {
+    // compare with what is shown (the retuned note), not the source note
+    const auto shown = playing[step];
     modify ([&] (Pattern& p)
     {
         auto& s = p[step];
-        if (s.gate == Gate::Note && s.semitone == semitone)
+        if (shown.gate == Gate::Note && shown.semitone == semitone)
         {
             s.gate = Gate::Rest;
         }
@@ -186,7 +210,24 @@ void PatternController::setPattern (const Pattern& p) { commit (p); }
 void PatternController::setGeneratorSettings (const GeneratorSettings& s)
 {
     if (s == genSettings) return;
+    const bool tuningChanged = s.scale != genSettings.scale || s.root != genSettings.root;
+    const auto keepWorld = genSettings.world;
     genSettings = s;
+    genSettings.world = keepWorld; // the world follows the parameter, not the UI
+    genSettings.scale = std::clamp (genSettings.scale, 0, (int) scales().size() - 1);
+    genSettings.worldScale[(size_t) indexOf (keepWorld)] = genSettings.scale;
+    if (tuningChanged)
+        publishAndNotify();
+    listeners.call ([] (Listener& l) { l.generatorSettingsChanged(); });
+}
+
+void PatternController::setWorld (World w)
+{
+    if (w == genSettings.world)
+        return;
+    genSettings.world = w;
+    genSettings.scale = genSettings.worldScale[(size_t) indexOf (w)];
+    publishAndNotify();
     listeners.call ([] (Listener& l) { l.generatorSettingsChanged(); });
 }
 
@@ -195,16 +236,16 @@ void PatternController::generate() { generateWithSeed (nextSeed()); }
 void PatternController::generateWithSeed (uint32_t seed)
 {
     genSettings.seed = seed;
-    commit (Generator::generate (pattern(), genSettings, seed));
+    commit (Generator::generate (sourcePattern(), genSettings, seed));
     listeners.call ([] (Listener& l) { l.generatorSettingsChanged(); });
 }
 
-void PatternController::mutate()            { commit (Generator::mutate (pattern(), genSettings, nextSeed())); }
-void PatternController::randomizeAccents()  { commit (Generator::randomizeAccents (pattern(), genSettings, nextSeed())); }
-void PatternController::randomizeSlides()   { commit (Generator::randomizeSlides (pattern(), genSettings, nextSeed())); }
-void PatternController::randomizeOctaves()  { commit (Generator::randomizeOctaves (pattern(), genSettings, nextSeed())); }
-void PatternController::shift (int dir)     { commit (Generator::shift (pattern(), dir)); }
-void PatternController::reverse()           { commit (Generator::reverse (pattern())); }
+void PatternController::mutate()            { commit (Generator::mutate (sourcePattern(), genSettings, nextSeed())); }
+void PatternController::randomizeAccents()  { commit (Generator::randomizeAccents (sourcePattern(), genSettings, nextSeed())); }
+void PatternController::randomizeSlides()   { commit (Generator::randomizeSlides (sourcePattern(), genSettings, nextSeed())); }
+void PatternController::randomizeOctaves()  { commit (Generator::randomizeOctaves (sourcePattern(), genSettings, nextSeed())); }
+void PatternController::shift (int dir)     { commit (Generator::shift (sourcePattern(), dir)); }
+void PatternController::reverse()           { commit (Generator::reverse (sourcePattern())); }
 
 // ---------------------------------------------------------------- history & slots
 
@@ -273,7 +314,12 @@ void PatternController::fromValueTree (const juce::ValueTree& v)
         if (child.hasType ("Pattern") && idx < PatternBank::numSlots)
             bank.slots[(size_t) idx++] = Pattern::fromValueTree (child);
         else if (child.hasType ("Generator"))
+        {
+            const auto keepWorld = genSettings.world;
             genSettings = GeneratorSettings::fromValueTree (child);
+            genSettings.world = keepWorld;
+            genSettings.scale = genSettings.worldScale[(size_t) indexOf (keepWorld)];
+        }
     }
     slot = juce::jlimit (0, PatternBank::numSlots - 1, (int) v.getProperty ("slot", 0));
     undoStack.clear();

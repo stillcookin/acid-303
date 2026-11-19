@@ -47,7 +47,8 @@ target_sources(acid_core INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/seq/Generator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/seq/Pattern.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/seq/PatternController.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/seq/MidiExport.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/seq/MidiExport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/seq/World.cpp)
 target_include_directories(acid_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 target_compile_definitions(acid_core INTERFACE
     JUCE_WEB_BROWSER=0
@@ -134,7 +135,8 @@ if(ACID_BUILD_TESTS)
         Tests/TestSequencer.cpp
         Tests/TestGenerator.cpp
         Tests/TestPatternController.cpp
-        Tests/TestEngine.cpp)
+        Tests/TestEngine.cpp
+        Tests/TestWorlds.cpp)
     target_link_libraries(acid_tests PRIVATE
         acid_core ${ACID_CORE_MODULES} Catch2::Catch2WithMain
         juce::juce_recommended_config_flags)

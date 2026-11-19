@@ -5,6 +5,7 @@
 //   acid_render out.wav [--seed N] [--bars N] [--bpm N] [--scale N] [--root N]
 //                       [--cutoff 0..1] [--reso 0..1] [--envmod 0..1] [--decay 0..1]
 //                       [--accent 0..1] [--drive 0..1] [--delay] [--reverb] [--square]
+//                       [--world 0|1|2]   (Classic, Space, Underground)
 
 #include "core/Engine.h"
 
@@ -24,7 +25,7 @@ int main (int argc, char* argv[])
     {
         std::cerr << "usage: acid_render out.wav [--seed N] [--bars N] [--bpm N] [--scale N] [--root N]\n"
                      "       [--cutoff x] [--reso x] [--envmod x] [--decay x] [--accent x] [--drive x]\n"
-                     "       [--delay] [--reverb] [--square]\n";
+                     "       [--delay] [--reverb] [--square] [--world 0|1|2]\n";
         return 1;
     }
 
@@ -45,8 +46,11 @@ int main (int argc, char* argv[])
     PatternController patterns (mailbox);
     Engine engine (mailbox, live);
 
+    const auto world = worldFromIndex ((int) value ("--world", 0));
+    patterns.setWorld (world);
+
     auto gs = patterns.generatorSettings();
-    gs.scale = (int) value ("--scale", 0);
+    gs.scale = args.contains ("--scale") ? (int) value ("--scale", 0) : gs.scale;
     gs.root = (int) value ("--root", 0);
     patterns.setGeneratorSettings (gs);
     if (args.contains ("--seed"))
@@ -62,6 +66,7 @@ int main (int argc, char* argv[])
     p.delayOn = flag ("--delay");
     p.reverbOn = flag ("--reverb");
     p.waveform = flag ("--square") ? 1 : 0;
+    p.world = world;
     engine.setParams (p);
     engine.prepare (sr, block);
 

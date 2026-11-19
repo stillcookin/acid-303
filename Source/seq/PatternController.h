@@ -12,20 +12,29 @@ namespace acid
 {
 
 /** Single-producer (message thread) / single-consumer (audio thread) handoff
-    of the currently playing pattern. The audio thread never blocks: if the
-    lock is busy it keeps playing its previous copy for one more block. */
+    of the currently playing pattern, retuned for every world. The audio
+    thread never blocks: if the lock is busy it keeps playing its previous
+    copy for one more block. */
 class PatternMailbox
 {
 public:
-    void publish (const Pattern& p)
+    void publish (const WorldPatterns& p)
     {
         const juce::SpinLock::ScopedLockType sl (lock);
         pending = p;
         dirty.store (true, std::memory_order_release);
     }
 
-    /** Audio thread: refreshes `dst` if a new pattern is available. */
-    void pull (Pattern& dst)
+    /** The same pattern for every world. */
+    void publish (const Pattern& p)
+    {
+        WorldPatterns all;
+        all.fill (p);
+        publish (all);
+    }
+
+    /** Audio thread: refreshes `dst` if new patterns are available. */
+    void pull (WorldPatterns& dst)
     {
         if (! dirty.load (std::memory_order_acquire))
             return;
@@ -37,9 +46,20 @@ public:
         }
     }
 
+    /** Convenience: refreshes `dst` with one world's pattern. */
+    void pull (Pattern& dst, World w = World::Classic)
+    {
+        if (! dirty.load (std::memory_order_acquire))
+            return;
+        WorldPatterns all;
+        all.fill (dst);
+        pull (all);
+        dst = all[(size_t) indexOf (w)];
+    }
+
 private:
     juce::SpinLock lock;
-    Pattern pending;
+    WorldPatterns pending {};
     std::atomic<bool> dirty { false };
 };
 
@@ -66,8 +86,13 @@ public:
     void removeListener (Listener* l) { listeners.remove (l); }
 
     // ---- reading -------------------------------------------------------
-    const Pattern& pattern() const { return bank.slots[(size_t) slot]; }
+    /** The pattern as it plays in the current world (retuned outside Classic). */
+    const Pattern& pattern() const { return playing; }
+    /** The pattern as written, before any world retuning. Edits apply here. */
+    const Pattern& sourcePattern() const { return bank.slots[(size_t) slot]; }
     const Pattern& patternInSlot (int s) const { return bank.slots[(size_t) juce::jlimit (0, PatternBank::numSlots - 1, s)]; }
+    /** The current slot's pattern as it plays in world `w`. */
+    Pattern patternForWorld (World w) const;
     int currentSlot() const { return slot; }
     const GeneratorSettings& generatorSettings() const { return genSettings; }
 
@@ -90,6 +115,14 @@ public:
     void setLength (int numSteps);
     void clearPattern();
     void setPattern (const Pattern& p);              ///< replace current slot's pattern
+
+    // ---- worlds --------------------------------------------------------
+    /** Switches the world: restores that world's last scale, retunes the
+        playing pattern (the source stays as written, so switching back to
+        Classic restores every note) and notifies listeners. Called from the
+        processor when the engine reports a new active world. */
+    void setWorld (World w);
+    World world() const { return genSettings.world; }
 
     // ---- generator -----------------------------------------------------
     void setGeneratorSettings (const GeneratorSettings& s);
@@ -126,7 +159,10 @@ private:
     uint32_t nextSeed();
 
     PatternMailbox& mailbox;
+    void refreshPlaying();
+
     PatternBank bank;
+    Pattern playing;
     int slot = 0;
     GeneratorSettings genSettings;
     std::vector<HistoryEntry> undoStack, redoStack;

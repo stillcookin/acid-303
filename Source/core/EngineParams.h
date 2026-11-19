@@ -1,7 +1,9 @@
 #pragma once
 
 #include "ParamSpec.h"
+#include "../seq/World.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -29,6 +31,10 @@ struct EngineParams
     // reverb
     bool reverbOn = false;
     float reverbSize = 0.5f, reverbDamp = 0.5f, reverbMix = 0.2f;
+    // world
+    World world = World::Classic;
+    WorldQuantize worldQuantize = WorldQuantize::Bar;
+    bool worldMidi = true;
 
     static EngineParams defaults()
     {
@@ -71,6 +77,9 @@ struct EngineParams
         e.reverbSize = f (Param::ReverbSize);
         e.reverbDamp = f (Param::ReverbDamp);
         e.reverbMix = f (Param::ReverbMix);
+        e.world = worldFromIndex (i (Param::World));
+        e.worldQuantize = static_cast<WorldQuantize> (std::clamp (i (Param::WorldQuantize), 0, 2));
+        e.worldMidi = b (Param::WorldMidi);
         return e;
     }
 };

@@ -14,6 +14,30 @@ AcidProcessor::AcidProcessor()
         rawParams[(size_t) static_cast<int> (s.param)] = apvts.getRawParameterValue (s.id);
         jassert (rawParams[(size_t) static_cast<int> (s.param)] != nullptr);
     }
+    startTimerHz (30);
+}
+
+void AcidProcessor::timerCallback()
+{
+    // MIDI asked for a world: move the parameter so Live, automation and the UI follow
+    const unsigned serial = live.midiWorldSerial.load();
+    if (serial != lastMidiWorldSerial)
+    {
+        lastMidiWorldSerial = serial;
+        if (auto* p = apvts.getParameter (idOf (Param::World)))
+        {
+            const float v = p->convertTo0to1 ((float) live.midiWorldRequest.load());
+            if (std::abs (p->getValue() - v) > 1.0e-4f)
+            {
+                p->beginChangeGesture();
+                p->setValueNotifyingHost (v);
+                p->endChangeGesture();
+            }
+        }
+    }
+
+    // the engine switched (on the beat/bar): retune what the UI shows
+    patterns.setWorld (worldFromIndex (live.world.load()));
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout AcidProcessor::createParameterLayout()
@@ -21,7 +45,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout AcidProcessor::createParamet
     using Kind = ParamSpec::Kind;
 
     static const std::map<juce::String, juce::String> groupNames {
-        { "voice", "Voice" }, { "seq", "Sequencer" }, { "drive", "Overdrive" }, { "delay", "Delay" }, { "reverb", "Reverb" }
+        { "voice", "Voice" }, { "seq", "Sequencer" }, { "drive", "Overdrive" }, { "delay", "Delay" }, { "reverb", "Reverb" },
+        { "world", "World" }
     };
 
     std::map<juce::String, std::unique_ptr<juce::AudioProcessorParameterGroup>> groups;
