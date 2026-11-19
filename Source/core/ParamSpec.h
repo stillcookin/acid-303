@@ -23,7 +23,9 @@ enum class Param : int
     // FX: reverb
     ReverbOn, ReverbSize, ReverbDamp, ReverbMix,
     // World (appended: IDs and saved sets stay compatible)
-    World, WorldQuantize, WorldMidi,
+    World, WorldQuantize, WorldMidi, WorldAlt,
+    // effect choices per slot (appended): 0 = the world's own effect
+    DriveType, DelayType, ReverbType,
 
     Count
 };

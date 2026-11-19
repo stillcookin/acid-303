@@ -113,6 +113,12 @@ public:
     void setOctave (int step, int octave);
     void cycleOctave (int step, int direction);
     void setLength (int numSteps);
+    /** Doubles the pattern (8 → 16, 16 → 32...) by copying it after itself. One undo step. */
+    void duplicate();
+    /** Live's ":2": spreads the notes out over twice the length (up to 32 steps). One undo step. */
+    void halfSpeed();
+    /** Live's "x2": squeezes the notes into half the length, keeping every other step. One undo step. */
+    void doubleSpeed();
     void clearPattern();
     void setPattern (const Pattern& p);              ///< replace current slot's pattern
 

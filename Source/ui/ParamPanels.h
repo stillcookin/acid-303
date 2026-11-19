@@ -24,7 +24,13 @@ public:
 
     void setShowCaption (bool show) { showCaption = show; resized(); repaint(); }
     /** Replaces the caption from ParamSpec (e.g. a knob whose role depends on the world). */
-    void setCaption (const juce::String& c) { if (c != caption) { caption = c; repaint(); } }
+    void setCaption (const juce::String& c)
+    {
+        if (c == caption) return;
+        caption = c;
+        if (getKind() == ParamSpec::Kind::Bool) toggle.setButtonText (c);
+        repaint();
+    }
     void setTooltip (const juce::String& t) { slider.setTooltip (t); combo.setTooltip (t); toggle.setTooltip (t); }
     Param getParam() const { return param; }
     ParamSpec::Kind getKind() const { return specOf (param).kind; }
@@ -58,8 +64,24 @@ public:
 
     /** The control for `p`, or nullptr if this section has none. */
     ParamControl* controlFor (Param p);
+    void setTitle (const juce::String& t) { if (t != title) { title = t; repaint(); } }
+
+    /** Makes the title a dropdown that picks a Choice parameter (the slot's effect type).
+        `labels` names each choice; an empty list turns the dropdown off. */
+    void setTypeChoice (Param p, const juce::StringArray& labels);
+
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
+    juce::Rectangle<int> titleArea() const;
+    int currentType() const;
+
+    juce::AudioProcessorValueTreeState& apvts;
+    std::optional<Param> typeParam;
+    juce::StringArray typeLabels;
+    bool hoverTitle = false;
     juce::String title;
     std::vector<std::unique_ptr<ParamControl>> controls;
     std::unique_ptr<juce::ToggleButton> enableToggle;

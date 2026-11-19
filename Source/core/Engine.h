@@ -2,8 +2,14 @@
 
 #include "EngineParams.h"
 #include "LiveState.h"
+#include "../dsp/Bitcrusher.h"
 #include "../dsp/Delay.h"
+#include "../dsp/Cavern.h"
+#include "../dsp/Grind.h"
 #include "../dsp/Overdrive.h"
+#include "../dsp/PhaseChorus.h"
+#include "../dsp/Shimmer.h"
+#include "../dsp/SpaceEcho.h"
 #include "../dsp/Reverb.h"
 #include "../dsp/Voice303.h"
 #include "../seq/PatternController.h"
@@ -22,8 +28,13 @@ namespace acid
 /** Host-independent instrument engine. The plugin's AudioProcessor is a thin
     adapter around this; tests and the offline render tool drive it directly.
 
-    Signal flow: [sequencer / MIDI] → Voice303 → Overdrive (2× oversampled)
-                 → StereoDelay → StereoReverb → Volume */
+    Signal flow per world (2× oversampled up to the stereo stage):
+      Classic      Voice → Overdrive → Delay → Reverb      (HOT: Overdrive before the filter)
+      Space        Voice → Phase/Chorus → Space Echo → Shimmer
+                   (DEEP SPACE: Echo → Phase/Chorus → Shimmer, shimmer fed back into the echo)
+      Underground  Voice → Grind → Ping-Pong → Cavern      (MOLTEN CORE: Grind before the filter,
+                   accents push the grind and the ping-pong feedback)
+    After a world switch the previous world's echoes and reverb ring out and fade. */
 class Engine
 {
 public:
@@ -60,6 +71,8 @@ private:
     void sortEvents();
     void applyEvent (const VoiceEvent& e);
     void renderVoice (float* osData, int fromOs, int toOs);
+    void updateFxParams (double bpm);
+    void runWorldFx (World w, bool alt, float* L, float* R, int n);
 
     PatternMailbox& mailbox;
     LiveState& live;
@@ -73,9 +86,32 @@ private:
     bool worldInitialised = false;
     Sequencer sequencer;
     dsp::Voice303 voice;
+    // Classic
     dsp::Overdrive drive;
     dsp::StereoDelay delay;
     dsp::StereoReverb reverb;
+    // Space
+    dsp::PhaseChorus phase;
+    dsp::SpaceEcho echo;
+    dsp::Shimmer shimmer;
+    // Underground
+    dsp::Grind grind;
+    dsp::StereoDelay pong;
+    dsp::Cavern cavern;
+    // slot choices: a bitcrusher for any world, and a plain delay / reverb per world
+    // (one each, so a fading tail never shares state with the world that replaced it)
+    dsp::Bitcrusher crush;
+    std::array<dsp::StereoDelay, numWorlds> plainDelays;
+    std::array<dsp::StereoReverb, numWorlds> plainReverbs;
+
+    int postShaper = 1;          ///< in the oversampled path after the VCA: 0 none, 1 overdrive, 2 grind, 3 bitcrusher
+    float kick = 0.0f;           ///< accent energy (Molten Core)
+    float worldGain = 1.0f;      ///< loudness match for the current world and chain (RMS, not peaks)
+    float duckEnv = 0.0f;        ///< Deep Space: follows the dry signal so the wash ducks under notes
+    juce::AudioBuffer<float> tail, deepFeedback, duckBuf;
+    World tailWorld = World::Classic;
+    bool tailAlt = false;
+    int tailSamples = 0, tailLength = 1;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
     juce::AudioBuffer<float> mono, stereo;
     int maxBlock = 512;

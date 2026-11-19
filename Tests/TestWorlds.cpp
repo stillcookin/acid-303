@@ -377,3 +377,98 @@ TEST_CASE ("Every world renders a stable, audible voice", "[worlds][engine]")
     }
     REQUIRE (peaks[2] != peaks[0]); // the sub and tighter decay change the sound
 }
+
+TEST_CASE ("Every world's effects and chain toggle stay stable with everything up full", "[worlds][engine][fx]")
+{
+    for (int w = 0; w < numWorlds; ++w)
+        for (int alt = 0; alt < 2; ++alt)
+        {
+            Rig rig;
+            rig.set (Param::World, (float) w);
+            rig.set (Param::WorldAlt, (float) alt);
+            rig.set (Param::Resonance, 1.0f);
+            rig.set (Param::DriveOn, 1.0f);   rig.set (Param::Drive, 1.0f);  rig.set (Param::DriveMix, 1.0f);
+            rig.set (Param::DelayOn, 1.0f);   rig.set (Param::DelayFeedback, 0.95f); rig.set (Param::DelayMix, 1.0f);
+            rig.set (Param::ReverbOn, 1.0f);  rig.set (Param::ReverbSize, 1.0f); rig.set (Param::ReverbDamp, 1.0f); rig.set (Param::ReverbMix, 1.0f);
+            double ppq = 0.0;
+            const float peak = rig.run (400, TransportInfo { true, 0.0, 128.0, 48000.0, 512 }, ppq);
+            INFO ("world " << w << " alt " << alt << " peak " << peak);
+            REQUIRE (peak > 0.02f);
+            REQUIRE (peak < 6.0f);
+        }
+}
+
+TEST_CASE ("A world switch lets the previous echoes ring out", "[worlds][engine][fx]")
+{
+    Rig rig;
+    rig.set (Param::WorldQuantize, 0.0f); // immediate
+    rig.set (Param::DelayOn, 1.0f);
+    rig.set (Param::DelayFeedback, 0.8f);
+    rig.set (Param::DelayMix, 1.0f);
+    double ppq = 0.0;
+    rig.run (200, TransportInfo { true, 0.0, 120.0, 48000.0, 512 }, ppq);
+
+    // switch while the transport stops: no new notes, only tails can sound
+    rig.set (Param::World, 1.0f);
+    const float tailPeak = rig.run (20, std::nullopt, ppq);
+    REQUIRE (rig.live.world == 1);
+    REQUIRE (tailPeak > 0.001f);
+}
+
+TEST_CASE ("The chain toggle is never quieter than its world's usual chain", "[worlds][engine][fx]")
+{
+    auto loudness = [] (int w, bool alt)
+    {
+        Rig rig;
+        rig.patterns.generateWithSeed (303);
+        rig.set (Param::World, (float) w);
+        rig.set (Param::WorldAlt, alt ? 1.0f : 0.0f);
+        rig.set (Param::DriveOn, 1.0f); rig.set (Param::Drive, 0.6f);
+        rig.set (Param::DelayOn, 1.0f); rig.set (Param::ReverbOn, 1.0f);
+        juce::AudioBuffer<float> buf (2, 512);
+        double sum = 0.0, ppq = 0.0;
+        long count = 0;
+        for (int b = 0; b < 600; ++b)
+        {
+            rig.engine.setParams (EngineParams::fromRaw (rig.raw));
+            buf.clear();
+            TransportInfo t { true, ppq, 126.0, 48000.0, 512 };
+            ppq += 512.0 / 48000.0 * (126.0 / 60.0);
+            rig.engine.process (buf, {}, t);
+            if (b < 100) continue; // let the effects fill up
+            for (int i = 0; i < 512; ++i) { const double v = buf.getSample (0, i); sum += v * v; ++count; }
+        }
+        return 10.0 * std::log10 (sum / (double) count + 1e-12);
+    };
+    for (int w = 0; w < numWorlds; ++w)
+    {
+        const double base = loudness (w, false), alt = loudness (w, true);
+        INFO ("world " << w << " default " << base << " dB, toggle " << alt << " dB");
+        REQUIRE (alt >= base - 0.25);
+        REQUIRE (alt <= base + 3.0);
+    }
+}
+
+TEST_CASE ("Bitcrusher, simple delay and plain reverb work in every world and chain", "[worlds][engine][fx]")
+{
+    for (int w = 0; w < numWorlds; ++w)
+        for (int alt = 0; alt < 2; ++alt)
+            for (int choice = 1; choice < 8; ++choice)
+            {
+                Rig rig;
+                rig.set (Param::World, (float) w);
+                rig.set (Param::WorldAlt, (float) alt);
+                rig.set (Param::DriveType, (float) (choice & 1));
+                rig.set (Param::DelayType, (float) ((choice >> 1) & 1));
+                rig.set (Param::ReverbType, (float) ((choice >> 2) & 1));
+                rig.set (Param::Resonance, 1.0f);
+                rig.set (Param::DriveOn, 1.0f);   rig.set (Param::Drive, 1.0f);  rig.set (Param::DriveMix, 1.0f);
+                rig.set (Param::DelayOn, 1.0f);   rig.set (Param::DelayFeedback, 0.95f); rig.set (Param::DelayMix, 1.0f);
+                rig.set (Param::ReverbOn, 1.0f);  rig.set (Param::ReverbSize, 1.0f); rig.set (Param::ReverbMix, 1.0f);
+                double ppq = 0.0;
+                const float peak = rig.run (120, TransportInfo { true, 0.0, 128.0, 48000.0, 512 }, ppq);
+                INFO ("world " << w << " alt " << alt << " choice " << choice << " peak " << peak);
+                REQUIRE (peak > 0.02f);
+                REQUIRE (peak < 2.0f);
+            }
+}

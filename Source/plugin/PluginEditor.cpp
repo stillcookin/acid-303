@@ -18,7 +18,7 @@ AcidEditor::AcidEditor (juce::AudioProcessor& p, UiContext ctx)
 
 void AcidEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (theme::background);
+    g.fillAll (juce::Colours::black);
 }
 
 void AcidEditor::resized()

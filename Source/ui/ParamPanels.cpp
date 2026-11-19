@@ -42,8 +42,8 @@ void ParamControl::paint (juce::Graphics& g)
 {
     if (getKind() == ParamSpec::Kind::Bool || ! showCaption)
         return;
-    g.setColour (theme::textDim);
-    g.setFont (theme::font (11.0f, true));
+    g.setColour (theme::pal (*this).textDim);
+    g.setFont (theme::labelFont (16.0f));
     auto area = getKind() == ParamSpec::Kind::Float ? slider.getBounds() : combo.getBounds();
     g.drawText (caption,
                 juce::Rectangle<int> (0, area.getBottom() + 1, getWidth(), 14), juce::Justification::centred, false);
@@ -77,7 +77,7 @@ void ParamControl::resized()
 
 ParamSection::ParamSection (juce::AudioProcessorValueTreeState& state, juce::String t,
                             std::vector<Param> params, std::optional<Param> enableParam)
-    : title (std::move (t))
+    : apvts (state), title (std::move (t))
 {
     for (auto p : params)
     {
@@ -101,17 +101,86 @@ ParamControl* ParamSection::controlFor (Param p)
     return nullptr;
 }
 
+juce::Rectangle<int> ParamSection::titleArea() const
+{
+    auto r = getLocalBounds().reduced (12, 0).removeFromTop (26);
+    if (enableToggle) r.setRight (enableToggle->getX() - 4);
+    return r;
+}
+
+int ParamSection::currentType() const
+{
+    if (! typeParam) return 0;
+    if (auto* v = apvts.getRawParameterValue (idOf (*typeParam)))
+        return (int) std::lround (v->load());
+    return 0;
+}
+
+void ParamSection::setTypeChoice (Param p, const juce::StringArray& labels)
+{
+    typeParam = p;
+    typeLabels = labels;
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+    repaint();
+}
+
+void ParamSection::mouseMove (const juce::MouseEvent& e)
+{
+    const bool over = typeLabels.size() > 1 && titleArea().contains (e.getPosition());
+    if (over != hoverTitle) { hoverTitle = over; setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor); repaint(); }
+}
+
+void ParamSection::mouseExit (const juce::MouseEvent&)
+{
+    if (hoverTitle) { hoverTitle = false; setMouseCursor (juce::MouseCursor::NormalCursor); repaint(); }
+}
+
+void ParamSection::mouseDown (const juce::MouseEvent& e)
+{
+    if (! typeParam || typeLabels.size() < 2 || ! titleArea().contains (e.getPosition()))
+        return;
+
+    juce::PopupMenu menu;
+    const int cur = currentType();
+    for (int i = 0; i < typeLabels.size(); ++i)
+        menu.addItem (i + 1, typeLabels[i], true, i == cur);
+
+    const auto param = *typeParam;
+    juce::Component::SafePointer<ParamSection> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (titleArea())),
+                        [safe, param] (int result)
+                        {
+                            if (safe == nullptr || result <= 0) return;
+                            if (auto* rp = safe->apvts.getParameter (idOf (param)))
+                            {
+                                rp->beginChangeGesture();
+                                rp->setValueNotifyingHost (rp->convertTo0to1 ((float) (result - 1)));
+                                rp->endChangeGesture();
+                            }
+                        });
+}
+
 void ParamSection::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds().toFloat();
-    g.setColour (theme::panel);
-    g.fillRoundedRectangle (r, theme::corner);
-    g.setColour (theme::outline);
-    g.drawRoundedRectangle (r.reduced (0.5f), theme::corner, 1.0f);
+    const auto& p = theme::pal (*this);
+    theme::pixelPanel (g, getLocalBounds(), p.panel, p.panelHi, p.panelLo, p.edge);
+    const auto area = titleArea();
+    const auto font = theme::titleFont (8.0f);
+    g.setColour (hoverTitle ? p.acid : p.title);
+    g.setFont (font);
+    g.drawText (title, area, juce::Justification::centredLeft, true);
 
-    g.setColour (theme::textDim);
-    g.setFont (theme::font (11.5f, true));
-    g.drawText (title, getLocalBounds().reduced (10, 0).removeFromTop (24), juce::Justification::centredLeft);
+    if (typeLabels.size() > 1)
+    {
+        // pixel chevron after the title: this title is a dropdown
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (font, title, 0.0f, 0.0f);
+        const int x = area.getX() + (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth()) + 6;
+        const int y = area.getCentreY() - 1;
+        g.fillRect (x, y - 2, 8, 2);
+        g.fillRect (x + 2, y, 4, 2);
+        g.fillRect (x + 3, y + 2, 2, 1);
+    }
 }
 
 void ParamSection::resized()
@@ -119,7 +188,7 @@ void ParamSection::resized()
     auto r = getLocalBounds().reduced (6, 0);
     auto header = r.removeFromTop (24);
     if (enableToggle)
-        enableToggle->setBounds (header.removeFromRight (48).reduced (0, 3));
+        enableToggle->setBounds (header.removeFromRight (58).reduced (0, 3).translated (-3, 2));
     r.removeFromBottom (6);
 
     std::vector<ParamControl*> knobs, others;

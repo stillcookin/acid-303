@@ -28,6 +28,7 @@ private:
     enum class Lane { None, Accent, Slide, Tie, Octave, Lock };
     static constexpr int numRows = 13;
     static constexpr int numLanes = 5;
+    static constexpr int laneH = 17;
 
     void patternChanged() override { repaint(); }
     void timerCallback() override;
