@@ -30,6 +30,9 @@ void Engine::prepare (double sr, int maxBlockSize)
     grind.prepare (sr * osFactor);
     pong.prepare (sr, 4.0);
     cavern.prepare (sr, maxBlock);
+    crush.prepare (sr * osFactor);
+    for (auto& d : plainDelays) d.prepare (sr, 4.0);
+    for (auto& r : plainReverbs) r.prepare (sr);
     tail.setSize (2, maxBlock);
     deepFeedback.setSize (2, maxBlock);
     duckBuf.setSize (3, maxBlock);
@@ -53,6 +56,9 @@ void Engine::reset()
     grind.reset();
     pong.reset();
     cavern.reset();
+    crush.reset();
+    for (auto& d : plainDelays) d.reset();
+    for (auto& r : plainReverbs) r.reset();
     deepFeedback.clear();
     duckEnv = 0.0f;
     tailSamples = 0;
@@ -228,6 +234,7 @@ void Engine::renderVoice (float* os, int from, int to)
     {
         case 1:  for (int i = from; i < to; ++i) os[i] = drive.process (voice.process()) * worldGain; break;
         case 2:  for (int i = from; i < to; ++i) os[i] = grind.process (voice.process()) * worldGain; break;
+        case 3:  for (int i = from; i < to; ++i) os[i] = crush.process (voice.process() * 4.0f) * worldGain; break;
         default: for (int i = from; i < to; ++i) os[i] = voice.process() * worldGain; break;
     }
 }
@@ -247,6 +254,8 @@ namespace
     constexpr float GAIN_C = 0.86f, GAIN_CH = 0.90f;
     constexpr float GAIN_S = 8.6f,  GAIN_SD = 10.2f;
     constexpr float GAIN_U = 1.12f, GAIN_UM = 1.62f;
+    // bitcrusher in the distortion slot, per world (default chain, toggle)
+    constexpr float GAIN_XC = 0.71f, GAIN_XCH = 0.76f, GAIN_XS = 1.20f, GAIN_XSD = 1.40f, GAIN_XU = 1.10f, GAIN_XUM = 1.22f;
 }
 
 void Engine::updateFxParams (double bpm)
@@ -255,29 +264,30 @@ void Engine::updateFxParams (double bpm)
     const bool alt = p.worldAlt;
     const float driveMix = p.driveOn ? p.driveMix : 0.0f;
 
-    // oversampled stage: where the drive sits, and whether it runs before the filter
+    // oversampled stage: where the drive sits, and whether it runs before the filter.
+    // The chain toggle stacks a copy of the slot's distortion before the filter (Classic, Underground).
+    const bool cr = p.crusher;
+    crush.setParams (p.drive, p.driveTone, driveMix);                                     // Bits, Rate, Mix
     switch (activeWorld)
     {
         case World::Classic:
-            // HOT stacks a drive before the filter on top of the usual one after it
-            postShaper = 1;
-            worldGain = alt ? GAIN_CH : GAIN_C;
+            postShaper = cr ? 3 : 1;
+            worldGain = cr ? (alt ? GAIN_XCH : GAIN_XC) : (alt ? GAIN_CH : GAIN_C);
             drive.setParams (p.drive, p.driveTone, driveMix);
-            voice.setPreShaper (alt ? 1 : 0, p.drive, p.driveTone, driveMix);
+            voice.setPreShaper (alt ? (cr ? 3 : 1) : 0, p.drive, p.driveTone, driveMix);
             break;
         case World::Underground:
         {
-            // Molten Core stacks a grind before the filter on top of the usual one after it
-            postShaper = 2;
-            worldGain = alt ? GAIN_UM : GAIN_U;
+            postShaper = cr ? 3 : 2;
+            worldGain = cr ? (alt ? GAIN_XUM : GAIN_XU) : (alt ? GAIN_UM : GAIN_U);
             const float grit = std::min (1.0f, p.drive + (alt ? kick * 0.35f : 0.0f));
             grind.setParams (grit, p.driveTone, driveMix);
-            voice.setPreShaper (alt ? 2 : 0, grit, p.driveTone, driveMix);
+            voice.setPreShaper (alt ? (cr ? 3 : 2) : 0, cr ? p.drive : grit, p.driveTone, driveMix);
             break;
         }
         case World::Space:
-            postShaper = 0;
-            worldGain = alt ? GAIN_SD : GAIN_S; // no distortion stage in Space
+            postShaper = cr ? 3 : 0;   // the crusher takes the phaser's slot
+            worldGain = cr ? (alt ? GAIN_XSD : GAIN_XS) : (alt ? GAIN_SD : GAIN_S);
             voice.setPreShaper (0, 0, 0, 0);
             break;
     }
@@ -290,7 +300,7 @@ void Engine::updateFxParams (double bpm)
     delay.setParams (delaySec, p.delayFeedback, p.delayTone, delayMix, p.delayPingPong);
     reverb.setParams (p.reverbSize, p.reverbDamp, reverbMix);
 
-    phase.setParams (p.drive, p.driveTone, driveMix);                                     // Rate, Depth, Mix
+    phase.setParams (p.drive, p.driveTone, cr ? 0.0f : driveMix);                         // Rate, Depth, Mix
     echo.setParams (delaySec, p.delayFeedback, p.delayTone, delayMix, p.delayPingPong);   // Wow, Tape on/off
     shimmer.setParams (p.reverbSize, p.reverbDamp, reverbMix);                            // Size, Shimmer, Mix
 
@@ -298,10 +308,20 @@ void Engine::updateFxParams (double bpm)
     pong.setWidth (p.delayTone * 2.0f);                                                   // Width
     pong.setFeedbackBoost (activeWorld == World::Underground && alt ? kick * 0.15f : 0.0f);
     cavern.setParams (p.reverbSize, p.reverbDamp, reverbMix);                             // Depth, Drip, Mix
+    for (auto& d : plainDelays) d.setParams (delaySec, p.delayFeedback, p.delayTone, delayMix, p.delayPingPong);
+    for (auto& r : plainReverbs) r.setParams (p.reverbSize, p.reverbDamp, reverbMix);
 }
 
 void Engine::runWorldFx (World w, bool alt, float* L, float* R, int n)
 {
+    const size_t wi = (size_t) indexOf (w);
+    const bool sd = params.simpleDelay && w != World::Classic;   // Classic's own delay and reverb are the plain ones
+    const bool pr = params.plainReverb && w != World::Classic;
+    auto runDelay = [&] (auto& own) { if (sd) plainDelays[wi].process (L, R, n); else own(); };
+    auto runReverb = [&] (auto& own) { if (pr) plainReverbs[wi].process (L, R, n); else own(); };
+    auto echoNormal = [&] { echo.process (L, R, n); };
+    auto shimmerFx = [&] { shimmer.process (L, R, n); };
+
     switch (w)
     {
         case World::Classic:
@@ -326,13 +346,15 @@ void Engine::runWorldFx (World w, bool alt, float* L, float* R, int n)
                     duckEnv += (a > duckEnv ? att : rel) * (a - duckEnv);
                     env[i] = std::min (1.0f, duckEnv * 6.0f);
                 }
-                echo.process (L, R, n, deepFeedback.getReadPointer (0), deepFeedback.getReadPointer (1));
+                auto echoFed = [&] { echo.process (L, R, n, deepFeedback.getReadPointer (0), deepFeedback.getReadPointer (1)); };
+                runDelay (echoFed);
                 phase.process (L, R, n);
-                shimmer.process (L, R, n);
+                runReverb (shimmerFx);
                 for (int c = 0; c < 2; ++c)
                 {
-                    const float* wet = shimmer.lastWet (c);
                     float* fb = deepFeedback.getWritePointer (c);
+                    if (pr) { std::fill (fb, fb + n, 0.0f); continue; } // feedback comes from the shimmer only
+                    const float* wet = shimmer.lastWet (c);
                     for (int i = 0; i < n; ++i)
                         fb[i] = std::tanh (wet[i] * 0.22f) * (1.0f - 0.7f * env[i]);
                 }
@@ -346,14 +368,18 @@ void Engine::runWorldFx (World w, bool alt, float* L, float* R, int n)
             else
             {
                 phase.process (L, R, n);
-                echo.process (L, R, n);
-                shimmer.process (L, R, n);
+                runDelay (echoNormal);
+                runReverb (shimmerFx);
             }
             break;
         case World::Underground:
-            pong.process (L, R, n);
-            cavern.process (L, R, n);
+        {
+            auto pongFx = [&] { pong.process (L, R, n); };
+            auto cavernFx = [&] { cavern.process (L, R, n); };
+            runDelay (pongFx);
+            runReverb (cavernFx);
             break;
+        }
     }
 }
 
@@ -518,6 +544,8 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
                 if (tailWorld == World::Classic) { delay.reset(); reverb.reset(); }
                 else if (tailWorld == World::Space) { echo.reset(); shimmer.reset(); phase.reset(); deepFeedback.clear(); }
                 else { pong.reset(); cavern.reset(); }
+                plainDelays[(size_t) indexOf (tailWorld)].reset();
+                plainReverbs[(size_t) indexOf (tailWorld)].reset();
             }
         }
 

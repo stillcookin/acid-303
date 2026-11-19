@@ -46,6 +46,10 @@ static std::array<ParamSpec, numParams> makeSpecs()
         ParamSpec { Param::WorldQuantize, K::Choice, "world_quant","World Switch","world", 0, 2, 2, -1, "", { "Immediate", "Next Beat", "Next Bar" } },
         ParamSpec { Param::WorldMidi,     K::Bool,   "world_midi", "World MIDI", "world", 0, 1, 1 },
         ParamSpec { Param::WorldAlt,      K::Bool,   "world_alt",  "Chain Toggle","world", 0, 1, 0 },
+
+        ParamSpec { Param::DriveType,     K::Choice, "drive_type", "Distortion Type", "drive",  0, 1, 0, -1, "", { "World", "Bitcrusher" } },
+        ParamSpec { Param::DelayType,     K::Choice, "delay_type", "Delay Type",      "delay",  0, 1, 0, -1, "", { "World", "Simple Delay" } },
+        ParamSpec { Param::ReverbType,    K::Choice, "reverb_type","Reverb Type",     "reverb", 0, 1, 0, -1, "", { "World", "Reverb" } },
     };
 
     for (int i = 0; i < numParams; ++i)

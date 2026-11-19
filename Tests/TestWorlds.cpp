@@ -448,3 +448,27 @@ TEST_CASE ("The chain toggle is never quieter than its world's usual chain", "[w
         REQUIRE (alt <= base + 3.0);
     }
 }
+
+TEST_CASE ("Bitcrusher, simple delay and plain reverb work in every world and chain", "[worlds][engine][fx]")
+{
+    for (int w = 0; w < numWorlds; ++w)
+        for (int alt = 0; alt < 2; ++alt)
+            for (int choice = 1; choice < 8; ++choice)
+            {
+                Rig rig;
+                rig.set (Param::World, (float) w);
+                rig.set (Param::WorldAlt, (float) alt);
+                rig.set (Param::DriveType, (float) (choice & 1));
+                rig.set (Param::DelayType, (float) ((choice >> 1) & 1));
+                rig.set (Param::ReverbType, (float) ((choice >> 2) & 1));
+                rig.set (Param::Resonance, 1.0f);
+                rig.set (Param::DriveOn, 1.0f);   rig.set (Param::Drive, 1.0f);  rig.set (Param::DriveMix, 1.0f);
+                rig.set (Param::DelayOn, 1.0f);   rig.set (Param::DelayFeedback, 0.95f); rig.set (Param::DelayMix, 1.0f);
+                rig.set (Param::ReverbOn, 1.0f);  rig.set (Param::ReverbSize, 1.0f); rig.set (Param::ReverbMix, 1.0f);
+                double ppq = 0.0;
+                const float peak = rig.run (120, TransportInfo { true, 0.0, 128.0, 48000.0, 512 }, ppq);
+                INFO ("world " << w << " alt " << alt << " choice " << choice << " peak " << peak);
+                REQUIRE (peak > 0.02f);
+                REQUIRE (peak < 2.0f);
+            }
+}

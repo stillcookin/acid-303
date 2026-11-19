@@ -35,7 +35,8 @@ struct EngineParams
     World world = World::Classic;
     WorldQuantize worldQuantize = WorldQuantize::Bar;
     bool worldMidi = true;
-    bool worldAlt = false;   ///< the world's alternative chain: HOT / DEEP SPACE / MOLTEN CORE
+    bool worldAlt = false;
+    bool crusher = false, simpleDelay = false, plainReverb = false; ///< slot choices: replace the world's effect   ///< the world's alternative chain: HOT / DEEP SPACE / MOLTEN CORE
 
     static EngineParams defaults()
     {
@@ -82,6 +83,9 @@ struct EngineParams
         e.worldQuantize = static_cast<WorldQuantize> (std::clamp (i (Param::WorldQuantize), 0, 2));
         e.worldMidi = b (Param::WorldMidi);
         e.worldAlt = b (Param::WorldAlt);
+        e.crusher = i (Param::DriveType) == 1;
+        e.simpleDelay = i (Param::DelayType) == 1;
+        e.plainReverb = i (Param::ReverbType) == 1;
         return e;
     }
 };

@@ -5,7 +5,7 @@
 //   acid_render out.wav [--seed N] [--bars N] [--bpm N] [--scale N] [--root N]
 //                       [--cutoff 0..1] [--reso 0..1] [--envmod 0..1] [--decay 0..1]
 //                       [--accent 0..1] [--drive 0..1] [--delay] [--reverb] [--square]
-//                       [--world 0|1|2] [--alt]   (Classic, Space, Underground; alt = chain toggle)
+//                       [--world 0|1|2] [--alt] [--crush] [--simpledelay] [--plainreverb]
 
 #include "core/Engine.h"
 
@@ -68,6 +68,9 @@ int main (int argc, char* argv[])
     p.waveform = flag ("--square") ? 1 : 0;
     p.world = world;
     p.worldAlt = flag ("--alt");
+    p.crusher = flag ("--crush");
+    p.simpleDelay = flag ("--simpledelay");
+    p.plainReverb = flag ("--plainreverb");
     engine.setParams (p);
     engine.prepare (sr, block);
 

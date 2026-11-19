@@ -66,7 +66,22 @@ public:
     ParamControl* controlFor (Param p);
     void setTitle (const juce::String& t) { if (t != title) { title = t; repaint(); } }
 
+    /** Makes the title a dropdown that picks a Choice parameter (the slot's effect type).
+        `labels` names each choice; an empty list turns the dropdown off. */
+    void setTypeChoice (Param p, const juce::StringArray& labels);
+
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+
 private:
+    juce::Rectangle<int> titleArea() const;
+    int currentType() const;
+
+    juce::AudioProcessorValueTreeState& apvts;
+    std::optional<Param> typeParam;
+    juce::StringArray typeLabels;
+    bool hoverTitle = false;
     juce::String title;
     std::vector<std::unique_ptr<ParamControl>> controls;
     std::unique_ptr<juce::ToggleButton> enableToggle;

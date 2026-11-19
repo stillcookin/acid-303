@@ -2,6 +2,7 @@
 
 #include "EngineParams.h"
 #include "LiveState.h"
+#include "../dsp/Bitcrusher.h"
 #include "../dsp/Delay.h"
 #include "../dsp/Cavern.h"
 #include "../dsp/Grind.h"
@@ -97,8 +98,13 @@ private:
     dsp::Grind grind;
     dsp::StereoDelay pong;
     dsp::Cavern cavern;
+    // slot choices: a bitcrusher for any world, and a plain delay / reverb per world
+    // (one each, so a fading tail never shares state with the world that replaced it)
+    dsp::Bitcrusher crush;
+    std::array<dsp::StereoDelay, numWorlds> plainDelays;
+    std::array<dsp::StereoReverb, numWorlds> plainReverbs;
 
-    int postShaper = 1;          ///< in the oversampled path after the VCA: 0 none, 1 overdrive, 2 grind
+    int postShaper = 1;          ///< in the oversampled path after the VCA: 0 none, 1 overdrive, 2 grind, 3 bitcrusher
     float kick = 0.0f;           ///< accent energy (Molten Core)
     float worldGain = 1.0f;      ///< loudness match for the current world and chain (RMS, not peaks)
     float duckEnv = 0.0f;        ///< Deep Space: follows the dry signal so the wash ducks under notes

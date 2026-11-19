@@ -29,12 +29,13 @@ public:
 
 private:
     void timerCallback() override;
-    void applyWorld (World w, bool alt);
+    void applyWorld (World w, bool alt, int types);
     void setWorldView (bool on);
 
     UiContext ctx;
     int shownWorld = -1;
     bool shownAlt = false;
+    int shownTypes = -1;   ///< distortion | delay << 1 | reverb << 2
     float flash = 0.0f;
     RungsLookAndFeel lnf;
     juce::TooltipWindow tooltips { this, 600 };
