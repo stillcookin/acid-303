@@ -74,7 +74,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> chainAttachment;
     std::array<juce::TextButton, PatternBank::numSlots> slotButtons;
     juce::ComboBox lengthBox;
-    juce::TextButton doubleButton { "x2" }, previewButton { "PREVIEW" }, rollButton { "ROLL" }, worldViewButton { "WORLD" };
+    juce::Rectangle<int> statusArea;
+    juce::TextButton halfButton { ":2" }, fastButton { "x2" }, dupButton { "DUP" }, previewButton { "PREVIEW" }, rollButton { "ROLL" }, worldViewButton { "WORLD" };
     MidiDragSource dragSource;
 
     juce::Image band { juce::Image::RGB, WorldScenes::bandWidth, WorldScenes::bandHeight, true };

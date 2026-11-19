@@ -342,14 +342,13 @@ namespace
                     }
                     else P.put (hash2 (x + 7, d) < E ? 0xd8fff9 : (hash2 (x + 3, d) < E + 0.35 ? 0x7fd1c7 : 0x2f6b64), x, y);
                 }
-                else if (MC && (x * 3 + d * 5) % 37 == 0 && h < 0.5) P.put (hash2 (x + 11, d) < E ? 0xffb02f : 0xc2361b, x, y);
             }
         }
-        // caves with stalactites and stalagmites
+        // caves with stalactites and stalagmites (not in Molten Core: just rock, diamonds and the rising lava)
         struct Tip { double x, y0, floor; };
         std::vector<Tip> tips;
         const int k0 = (int) std::floor (depth / 34.0) - 1;
-        for (int k = k0; k < k0 + 4; ++k)
+        for (int k = k0; ! MC && k < k0 + 4; ++k)
         {
             if (! fx.on[2] && hash2 (k, 98) > 0.55) continue;
             const double cx = 20 + hash2 (k, 99) * 205, cy = k * 34 + 17 - depth;
@@ -396,7 +395,7 @@ namespace
         }
         // lava pockets
         const int L0 = (int) std::floor (depth / 46.0) - 1;
-        for (int k = L0; k < L0 + 3; ++k)
+        for (int k = L0; ! MC && k < L0 + 3; ++k)
         {
             if (hash2 (k, 55) > 0.65) continue;
             const double lx = 16 + hash2 (k, 56) * 213, ly = k * 46 + 31 - depth, lr = 8 + hash2 (k, 57) * 8;
@@ -427,31 +426,19 @@ namespace
         if (MC)
         {
             const u32 SH[] { 0xfff4dd, 0xffd27b, 0xff8a3e, 0xff5a2f, 0xc2361b, 0x8a2412 };
+            // the lava rises towards the drill as the music gets louder (and deeper with the cavern up)
+            const double level = 52 - E * 13 - (fx.on[2] ? cdepth * 4 : 0.0) + std::sin (tt * 0.7) * 1.5;
             std::vector<double> surf ((size_t) W);
             for (int x = 0; x < W; ++x)
             {
-                const double sy = rnd (51 + std::sin (x * 0.18 + tt * 2.2) * (1 + E * 1.6) + std::sin (x * 0.05 - tt * 1.1));
+                const double sy = rnd (level + std::sin (x * 0.18 + tt * 2.2) * (1 + E * 1.6) + std::sin (x * 0.05 - tt * 1.1));
                 surf[(size_t) x] = sy;
                 if (hash2 (x, s.frame >> 1) < 0.25 + E * 0.35) P.put (0x5a2a14, x, sy - 2 - std::floor (hash2 (x, 3) * 2));
                 P.put (SH[1], x, sy); P.put (SH[2], x, sy + 1, 1, 2); P.put (SH[3], x, sy + 3, 1, 4); P.put (SH[4], x, sy + 7, 1, 5); P.put (SH[5], x, sy + 12, 1, H);
                 if (hash2 (x, (int) std::floor (tt * 3)) < 0.05 + E * 0.1) P.put (SH[0], x, sy + 1);
             }
             const int fountains[] { 36, 92, 158, 214 };
-            for (int fi = 0; fi < 4; ++fi)
-            {
-                const int fxp = fountains[fi];
-                const double base = surf[(size_t) fxp];
-                Rng rf (fi * 31 + 5);
-                const int n = 12 + (int) rnd (E * 16);
-                for (int i = 0; i < n; ++i)
-                {
-                    const double T = 0.8 + rf() * 0.6, ph = std::fmod (tt + rf() * T, T);
-                    const double v = (18 + rf() * 16) * (0.6 + E * 1.4), vx = (rf() - 0.5) * 14;
-                    const double y = base - v * ph + 34 * ph * ph;
-                    if (y > base) continue;
-                    P.put (SH[std::min (5, (int) std::floor (ph / T * 6))], fxp + vx * ph, y, 2, i % 2 ? 2 : 1);
-                }
-            }
+            // a splash only on accents: the surface stays calm otherwise
             if (s.playing && s.lastAccent && age < 0.9)
             {
                 Rng rf (std::floor (s.lastTrig * 1000) + 99);

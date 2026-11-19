@@ -100,8 +100,9 @@ private:
 
     int postShaper = 1;          ///< in the oversampled path after the VCA: 0 none, 1 overdrive, 2 grind
     float kick = 0.0f;           ///< accent energy (Molten Core)
-    float worldGain = 1.0f;      ///< level match when no post-VCA distortion runs
-    juce::AudioBuffer<float> tail, deepFeedback;
+    float worldGain = 1.0f;      ///< loudness match for the current world and chain (RMS, not peaks)
+    float duckEnv = 0.0f;        ///< Deep Space: follows the dry signal so the wash ducks under notes
+    juce::AudioBuffer<float> tail, deepFeedback, duckBuf;
     World tailWorld = World::Classic;
     bool tailAlt = false;
     int tailSamples = 0, tailLength = 1;

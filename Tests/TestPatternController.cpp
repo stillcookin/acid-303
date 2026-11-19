@@ -127,3 +127,44 @@ TEST_CASE ("Duplicate doubles the pattern with one undo step", "[controller]")
     pc.undo();
     REQUIRE (pc.pattern() == before);
 }
+
+TEST_CASE (":2 spreads notes out and x2 squeezes them back", "[controller]")
+{
+    PatternMailbox mb;
+    PatternController pc (mb);
+    Pattern p;
+    p.length = 4;
+    p.steps[0] = Step { 0, 0, Gate::Note, true, false, false };
+    p.steps[1] = Step { 3, 0, Gate::Note, false, true, false };  // slides into step 2
+    p.steps[2] = Step { 7, 0, Gate::Note, false, false, false };
+    p.steps[3] = Step {};                                         // rest
+    pc.setPattern (p);
+
+    pc.halfSpeed();
+    const auto& h = pc.pattern();
+    REQUIRE (h.length == 8);
+    REQUIRE (h.steps[0].gate == Gate::Note);
+    REQUIRE (h.steps[0].accent);
+    REQUIRE (h.steps[1].gate == Gate::Tie);   // the note holds twice as long
+    REQUIRE (! h.steps[1].accent);
+    REQUIRE (h.steps[2].semitone == 3);
+    REQUIRE (! h.steps[2].slide);
+    REQUIRE (h.steps[3].gate == Gate::Tie);
+    REQUIRE (h.steps[3].slide);               // still glides into the next note
+    REQUIRE (h.steps[4].semitone == 7);
+    REQUIRE (h.steps[6].gate == Gate::Rest);
+    REQUIRE (h.steps[7].gate == Gate::Rest);
+
+    pc.doubleSpeed();                         // round trip
+    REQUIRE (pc.pattern() == p);
+
+    pc.doubleSpeed();
+    REQUIRE (pc.pattern().length == 2);
+    REQUIRE (pc.pattern().steps[1].semitone == 7);
+    pc.undo();
+    REQUIRE (pc.pattern() == p);
+
+    pc.setLength (32);
+    pc.halfSpeed();                           // 64 would not fit: unchanged
+    REQUIRE (pc.pattern().length == 32);
+}

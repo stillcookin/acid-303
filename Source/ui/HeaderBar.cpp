@@ -144,9 +144,17 @@ HeaderBar::HeaderBar (UiContext c)
     };
     addAndMakeVisible (lengthBox);
 
-    doubleButton.setTooltip ("Duplicate: copy the pattern after itself (8 > 16 > 32 steps)");
-    doubleButton.onClick = [this] { ctx.patterns.duplicate(); };
-    addAndMakeVisible (doubleButton);
+    // Live-style clip tools, grouped around the length they change
+    halfButton.setTooltip (":2  Half speed: spread the notes over twice the steps (16 > 32)");
+    halfButton.onClick = [this] { ctx.patterns.halfSpeed(); };
+    fastButton.setTooltip ("x2  Double speed: squeeze the notes into half the steps (keeps every other step)");
+    fastButton.onClick = [this] { ctx.patterns.doubleSpeed(); };
+    dupButton.setTooltip ("Duplicate: copy the pattern after itself (8 > 16 > 32 steps)");
+    dupButton.onClick = [this] { ctx.patterns.duplicate(); };
+    halfButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+    fastButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+    for (auto* b : { &halfButton, &fastButton, &dupButton })
+        addAndMakeVisible (b);
 
     previewButton.setClickingTogglesState (true);
     previewButton.setTooltip ("Play the pattern on an internal clock while the host transport is stopped");
@@ -204,7 +212,10 @@ void HeaderBar::refresh()
     for (int i = 0; i < (int) slotButtons.size(); ++i)
         slotButtons[(size_t) i].setToggleState (i == ctx.patterns.currentSlot(), juce::dontSendNotification);
     lengthBox.setSelectedId (ctx.patterns.pattern().length, juce::dontSendNotification);
-    doubleButton.setEnabled (ctx.patterns.pattern().length * 2 <= Pattern::maxSteps);
+    const int len = ctx.patterns.pattern().length;
+    dupButton.setEnabled (len * 2 <= Pattern::maxSteps);
+    halfButton.setEnabled (len * 2 <= Pattern::maxSteps);
+    fastButton.setEnabled (len >= 2);
 }
 
 void HeaderBar::timerCallback()
@@ -298,7 +309,7 @@ void HeaderBar::paint (juce::Graphics& g)
 
     g.setColour (p.plateText);
     g.setFont (theme::labelFont (18.0f));
-    g.drawText (status, r.reduced (10, 0).removeFromRight (90), juce::Justification::centredRight, false);
+    g.drawFittedText (status, statusArea, juce::Justification::centredRight, 1, 0.8f);
 }
 
 void HeaderBar::resized()
@@ -314,23 +325,26 @@ void HeaderBar::resized()
     chainButton.setBounds (strip.getRight() - 356 - 12 - 120, 8, 120, 32);
 
     auto r = getLocalBounds().withTrimmedTop (bandHeight).reduced (10, 6);
-    mode.setBounds (r.removeFromLeft (128));
+    mode.setBounds (r.removeFromLeft (120));
     r.removeFromLeft (8);
-    auto slots = r.removeFromLeft (336);
+    auto slots = r.removeFromLeft (304);
     const int w = slots.getWidth() / (int) slotButtons.size();
     for (auto& b : slotButtons)
         b.setBounds (slots.removeFromLeft (w).reduced (1, 0));
     r.removeFromLeft (8);
-    lengthBox.setBounds (r.removeFromLeft (88));
+    halfButton.setBounds (r.removeFromLeft (30));
+    lengthBox.setBounds (r.removeFromLeft (84));
+    fastButton.setBounds (r.removeFromLeft (30));
     r.removeFromLeft (4);
-    doubleButton.setBounds (r.removeFromLeft (34));
+    dupButton.setBounds (r.removeFromLeft (40));
     r.removeFromLeft (8);
-    previewButton.setBounds (r.removeFromLeft (74));
+    previewButton.setBounds (r.removeFromLeft (68));
     r.removeFromLeft (6);
-    dragSource.setBounds (r.removeFromLeft (84));
+    dragSource.setBounds (r.removeFromLeft (76));
     r.removeFromLeft (8);
     rollButton.setBounds (r.removeFromLeft (52));
     worldViewButton.setBounds (r.removeFromLeft (58));
+    statusArea = r.withTrimmedLeft (6);
 }
 
 } // namespace acid::ui

@@ -32,6 +32,7 @@ void Engine::prepare (double sr, int maxBlockSize)
     cavern.prepare (sr, maxBlock);
     tail.setSize (2, maxBlock);
     deepFeedback.setSize (2, maxBlock);
+    duckBuf.setSize (3, maxBlock);
     tailLength = (int) (sr * 4.0);
 
     volume.reset (sr, 0.02);
@@ -53,6 +54,7 @@ void Engine::reset()
     pong.reset();
     cavern.reset();
     deepFeedback.clear();
+    duckEnv = 0.0f;
     tailSamples = 0;
     kick = 0.0f;
     sequencer.reset();
@@ -224,10 +226,27 @@ void Engine::renderVoice (float* os, int from, int to)
 {
     switch (postShaper)
     {
-        case 1:  for (int i = from; i < to; ++i) os[i] = drive.process (voice.process()); break;
-        case 2:  for (int i = from; i < to; ++i) os[i] = grind.process (voice.process()); break;
+        case 1:  for (int i = from; i < to; ++i) os[i] = drive.process (voice.process()) * worldGain; break;
+        case 2:  for (int i = from; i < to; ++i) os[i] = grind.process (voice.process()) * worldGain; break;
         default: for (int i = from; i < to; ++i) os[i] = voice.process() * worldGain; break;
     }
+}
+
+namespace
+{
+    inline float softCeiling (float x) noexcept
+    {
+        constexpr float knee = 0.6f, room = 0.355f; // knee at 0.6, ceiling 0.955
+        const float a = std::abs (x);
+        if (a <= knee) return x;
+        return std::copysign (knee + room * std::tanh ((a - knee) / room), x);
+    }
+
+    // loudness match per world and chain (measured as RMS on a typical pattern);
+    // the chain toggle sits about 1 dB above its world's default so it reads as a lift
+    constexpr float GAIN_C = 0.86f, GAIN_CH = 0.90f;
+    constexpr float GAIN_S = 8.6f,  GAIN_SD = 10.2f;
+    constexpr float GAIN_U = 1.12f, GAIN_UM = 1.62f;
 }
 
 void Engine::updateFxParams (double bpm)
@@ -240,15 +259,17 @@ void Engine::updateFxParams (double bpm)
     switch (activeWorld)
     {
         case World::Classic:
-            postShaper = alt ? 0 : 1;
-            worldGain = 1.9f;
+            // HOT stacks a drive before the filter on top of the usual one after it
+            postShaper = 1;
+            worldGain = alt ? GAIN_CH : GAIN_C;
             drive.setParams (p.drive, p.driveTone, driveMix);
             voice.setPreShaper (alt ? 1 : 0, p.drive, p.driveTone, driveMix);
             break;
         case World::Underground:
         {
-            postShaper = alt ? 0 : 2;
-            worldGain = 3.2f;
+            // Molten Core stacks a grind before the filter on top of the usual one after it
+            postShaper = 2;
+            worldGain = alt ? GAIN_UM : GAIN_U;
             const float grit = std::min (1.0f, p.drive + (alt ? kick * 0.35f : 0.0f));
             grind.setParams (grit, p.driveTone, driveMix);
             voice.setPreShaper (alt ? 2 : 0, grit, p.driveTone, driveMix);
@@ -256,7 +277,7 @@ void Engine::updateFxParams (double bpm)
         }
         case World::Space:
             postShaper = 0;
-            worldGain = 4.0f; // no distortion stage in Space: match Classic's level
+            worldGain = alt ? GAIN_SD : GAIN_S; // no distortion stage in Space
             voice.setPreShaper (0, 0, 0, 0);
             break;
     }
@@ -290,7 +311,21 @@ void Engine::runWorldFx (World w, bool alt, float* L, float* R, int n)
         case World::Space:
             if (alt)
             {
-                // Deep Space: echo first (with the last block's shimmer fed back in), then phase, then shimmer
+                // Deep Space: echo first (with the last block's shimmer fed back in), then phase, then shimmer.
+                // The wash ducks while a note plays: keep the dry hit and follow its level.
+                const float att = 1.0f - std::exp (-1.0f / (0.002f * (float) sampleRate));
+                const float rel = 1.0f - std::exp (-1.0f / (0.15f * (float) sampleRate));
+                float* dryL = duckBuf.getWritePointer (0);
+                float* dryR = duckBuf.getWritePointer (1);
+                float* env = duckBuf.getWritePointer (2);
+                for (int i = 0; i < n; ++i)
+                {
+                    dryL[i] = L[i];
+                    dryR[i] = R[i];
+                    const float a = 0.5f * (std::abs (L[i]) + std::abs (R[i]));
+                    duckEnv += (a > duckEnv ? att : rel) * (a - duckEnv);
+                    env[i] = std::min (1.0f, duckEnv * 6.0f);
+                }
                 echo.process (L, R, n, deepFeedback.getReadPointer (0), deepFeedback.getReadPointer (1));
                 phase.process (L, R, n);
                 shimmer.process (L, R, n);
@@ -299,7 +334,13 @@ void Engine::runWorldFx (World w, bool alt, float* L, float* R, int n)
                     const float* wet = shimmer.lastWet (c);
                     float* fb = deepFeedback.getWritePointer (c);
                     for (int i = 0; i < n; ++i)
-                        fb[i] = std::tanh (wet[i] * 0.22f);
+                        fb[i] = std::tanh (wet[i] * 0.22f) * (1.0f - 0.7f * env[i]);
+                }
+                for (int i = 0; i < n; ++i)
+                {
+                    const float d = 0.55f * env[i];
+                    L[i] += d * (dryL[i] - L[i]);
+                    R[i] += d * (dryR[i] - R[i]);
                 }
             }
             else
@@ -478,6 +519,14 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
                 else if (tailWorld == World::Space) { echo.reset(); shimmer.reset(); phase.reset(); deepFeedback.clear(); }
                 else { pong.reset(); cavern.reset(); }
             }
+        }
+
+        // ---- soft ceiling: transparent below about -4.4 dBFS, rounds peaks off towards -0.4 dBFS
+        for (int c = 0; c < 2; ++c)
+        {
+            float* x = stereo.getWritePointer (c);
+            for (int i = 0; i < n; ++i)
+                x[i] = softCeiling (x[i]);
         }
 
         // ---- output

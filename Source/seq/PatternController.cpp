@@ -206,6 +206,56 @@ void PatternController::duplicate()
     });
 }
 
+void PatternController::halfSpeed()
+{
+    // Live's ":2": everything plays half as fast. Each step becomes two; a note holds through
+    // the new step (a tie), and a slide moves onto that tie so it still glides into the next note.
+    modify ([] (Pattern& p)
+    {
+        const int len = p.length;
+        if (len * 2 > Pattern::maxSteps) return;
+        const auto old = p.steps;
+        for (int i = 0; i < len; ++i)
+        {
+            Step a = old[(size_t) i], b {};
+            if (a.gate != Gate::Rest)
+            {
+                b = a;
+                b.gate = Gate::Tie;
+                b.accent = false;
+                a.slide = false;
+            }
+            b.locked = a.locked;
+            p.steps[(size_t) (2 * i)] = a;
+            p.steps[(size_t) (2 * i + 1)] = b;
+        }
+        p.length = len * 2;
+    });
+}
+
+void PatternController::doubleSpeed()
+{
+    // Live's "x2": everything plays twice as fast. Every other step is kept (the grid is 16ths,
+    // so the in-between steps have nowhere to go); a slide on the dropped step carries over.
+    modify ([] (Pattern& p)
+    {
+        const int len = p.length;
+        if (len < 2) return;
+        const auto old = p.steps;
+        const int half = (len + 1) / 2;
+        for (int i = 0; i < Pattern::maxSteps; ++i)
+        {
+            if (i >= half) { if (! p.steps[(size_t) i].locked) p.steps[(size_t) i] = Step {}; continue; }
+            Step a = old[(size_t) (2 * i)];
+            const int j = 2 * i + 1;
+            if (j < len && a.gate != Gate::Rest && old[(size_t) j].gate == Gate::Tie && old[(size_t) j].slide)
+                a.slide = true;
+            p.steps[(size_t) i] = a;
+        }
+        p.length = half;
+    });
+}
+
 void PatternController::clearPattern()
 {
     modify ([] (Pattern& p)

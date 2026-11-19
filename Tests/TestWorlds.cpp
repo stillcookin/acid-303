@@ -414,3 +414,37 @@ TEST_CASE ("A world switch lets the previous echoes ring out", "[worlds][engine]
     REQUIRE (rig.live.world == 1);
     REQUIRE (tailPeak > 0.001f);
 }
+
+TEST_CASE ("The chain toggle is never quieter than its world's usual chain", "[worlds][engine][fx]")
+{
+    auto loudness = [] (int w, bool alt)
+    {
+        Rig rig;
+        rig.patterns.generateWithSeed (303);
+        rig.set (Param::World, (float) w);
+        rig.set (Param::WorldAlt, alt ? 1.0f : 0.0f);
+        rig.set (Param::DriveOn, 1.0f); rig.set (Param::Drive, 0.6f);
+        rig.set (Param::DelayOn, 1.0f); rig.set (Param::ReverbOn, 1.0f);
+        juce::AudioBuffer<float> buf (2, 512);
+        double sum = 0.0, ppq = 0.0;
+        long count = 0;
+        for (int b = 0; b < 600; ++b)
+        {
+            rig.engine.setParams (EngineParams::fromRaw (rig.raw));
+            buf.clear();
+            TransportInfo t { true, ppq, 126.0, 48000.0, 512 };
+            ppq += 512.0 / 48000.0 * (126.0 / 60.0);
+            rig.engine.process (buf, {}, t);
+            if (b < 100) continue; // let the effects fill up
+            for (int i = 0; i < 512; ++i) { const double v = buf.getSample (0, i); sum += v * v; ++count; }
+        }
+        return 10.0 * std::log10 (sum / (double) count + 1e-12);
+    };
+    for (int w = 0; w < numWorlds; ++w)
+    {
+        const double base = loudness (w, false), alt = loudness (w, true);
+        INFO ("world " << w << " default " << base << " dB, toggle " << alt << " dB");
+        REQUIRE (alt >= base - 0.25);
+        REQUIRE (alt <= base + 3.0);
+    }
+}
