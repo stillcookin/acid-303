@@ -113,6 +113,8 @@ public:
     void setOctave (int step, int octave);
     void cycleOctave (int step, int direction);
     void setLength (int numSteps);
+    /** Doubles the pattern (8 → 16, 16 → 32...) by copying it after itself. One undo step. */
+    void duplicate();
     void clearPattern();
     void setPattern (const Pattern& p);              ///< replace current slot's pattern
 

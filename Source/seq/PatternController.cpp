@@ -194,6 +194,18 @@ void PatternController::setLength (int numSteps)
     modify ([&] (Pattern& p) { p.length = juce::jlimit (1, Pattern::maxSteps, numSteps); });
 }
 
+void PatternController::duplicate()
+{
+    modify ([] (Pattern& p)
+    {
+        const int len = p.length;
+        if (len * 2 > Pattern::maxSteps) return;
+        for (int i = 0; i < len; ++i)
+            p.steps[(size_t) (i + len)] = p.steps[(size_t) i];
+        p.length = len * 2;
+    });
+}
+
 void PatternController::clearPattern()
 {
     modify ([] (Pattern& p)

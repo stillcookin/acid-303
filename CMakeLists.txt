@@ -66,8 +66,8 @@ if(ACID_BUILD_PLUGIN)
     endif()
 
     juce_add_plugin(Acid303
-        PRODUCT_NAME               "Acid303"
-        COMPANY_NAME               "Acid303"
+        PRODUCT_NAME               "Rungs"
+        COMPANY_NAME               "Rungs"
         BUNDLE_ID                  "com.acid303.acid303"
         PLUGIN_MANUFACTURER_CODE   Acdl
         PLUGIN_CODE                Ac3d
@@ -84,12 +84,20 @@ if(ACID_BUILD_PLUGIN)
     target_sources(Acid303 PRIVATE
         Source/plugin/PluginProcessor.cpp
         Source/plugin/PluginEditor.cpp
-        Source/ui/AcidLookAndFeel.cpp
+        Source/ui/Theme.cpp
+        Source/ui/RungsLookAndFeel.cpp
         Source/ui/PianoRoll.cpp
         Source/ui/GeneratorPanel.cpp
         Source/ui/HeaderBar.cpp
         Source/ui/ParamPanels.cpp
+        Source/ui/WorldScenes.cpp
+        Source/ui/WorldView.cpp
         Source/ui/MainView.cpp)
+
+    # pixel fonts (SIL Open Font License, see Resources/Fonts/OFL-*.txt)
+    juce_add_binary_data(RungsAssets SOURCES
+        Resources/Fonts/PressStart2P-Regular.ttf
+        Resources/Fonts/VT323-Regular.ttf)
 
     target_compile_definitions(Acid303 PUBLIC
         JUCE_VST3_CAN_REPLACE_VST2=0)
@@ -97,6 +105,7 @@ if(ACID_BUILD_PLUGIN)
     target_link_libraries(Acid303
         PRIVATE
             acid_core
+            RungsAssets
             ${ACID_CORE_MODULES}
             juce::juce_audio_utils
             juce::juce_audio_processors

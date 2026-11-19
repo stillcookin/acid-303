@@ -17,6 +17,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
 private:
     struct Knob
@@ -25,7 +26,7 @@ private:
         juce::String caption;
     };
 
-    void generatorSettingsChanged() override { refresh(); }
+    void generatorSettingsChanged() override { refresh(); repaint(); }
     void patternChanged() override { refreshButtons(); }
     void refresh();
     void refreshButtons();

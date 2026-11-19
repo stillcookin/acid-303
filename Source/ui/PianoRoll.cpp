@@ -38,7 +38,7 @@ void PianoRoll::resized()
     auto r = getLocalBounds().reduced (8);
     keyArea = r.removeFromLeft (44);
     numberArea = r.removeFromBottom (16);
-    laneArea = r.removeFromBottom (numLanes * 20);
+    laneArea = r.removeFromBottom (numLanes * laneH);
     r.removeFromBottom (6);
     gridArea = r;
     keyArea = keyArea.withTop (gridArea.getY()).withBottom (laneArea.getBottom());
@@ -72,7 +72,7 @@ int PianoRoll::semitoneAtY (int y) const
 PianoRoll::Lane PianoRoll::laneAtY (int y) const
 {
     if (! laneArea.contains (laneArea.getX(), y)) return Lane::None;
-    const int idx = juce::jlimit (0, numLanes - 1, (y - laneArea.getY()) / 20);
+    const int idx = juce::jlimit (0, numLanes - 1, (y - laneArea.getY()) / laneH);
     return static_cast<Lane> (idx + 1);
 }
 
@@ -85,18 +85,15 @@ juce::Rectangle<float> PianoRoll::cellRect (int step, int semitone) const
 
 juce::Rectangle<float> PianoRoll::laneCell (int laneIndex, int step) const
 {
-    return { columnX (step), (float) (laneArea.getY() + laneIndex * 20), columnWidth(), 20.0f };
+    return { columnX (step), (float) (laneArea.getY() + laneIndex * laneH), columnWidth(), (float) laneH };
 }
 
 // ------------------------------------------------------------------ painting
 
 void PianoRoll::paint (juce::Graphics& g)
 {
-    using namespace theme;
-    g.setColour (panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), corner);
-    g.setColour (outline);
-    g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), corner, 1.0f);
+    const auto& P = theme::pal (*this);
+    theme::pixelPanel (g, getLocalBounds(), P.rollBg, P.panelHi, P.panelLo, P.edge);
 
     const auto& p = ctx.patterns.pattern();
     paintGrid (g, p);
@@ -106,59 +103,49 @@ void PianoRoll::paint (juce::Graphics& g)
 
 void PianoRoll::paintGrid (juce::Graphics& g, const Pattern& p)
 {
-    using namespace theme;
+    const auto& P = theme::pal (*this);
     const float rowH = (float) gridArea.getHeight() / numRows;
 
-    // rows & key labels
     for (int s = 0; s < numRows; ++s)
     {
-        auto row = cellRect (0, s).withX ((float) gridArea.getX()).withWidth ((float) gridArea.getWidth());
-        g.setColour (isBlackKey (s) ? blackKeyRow : gridBeat.brighter (0.05f));
-        g.fillRect (row);
-
-        auto key = juce::Rectangle<float> ((float) keyArea.getX(), row.getY(), (float) keyArea.getWidth() - 4.0f, rowH);
-        g.setColour (isBlackKey (s) ? panelRaised.darker (0.4f) : panelRaised.brighter (0.15f));
-        g.fillRect (key.reduced (0.0f, 0.5f));
-        g.setColour (isBlackKey (s) ? textDim : text);
-        g.setFont (font (10.5f, s % 12 == 0));
+        const bool black = isBlackKey (s);
+        // cells: alternate shading every four steps, playhead column highlighted
+        for (int i = 0; i < p.length; ++i)
+        {
+            const bool alt = (i / 4) % 2 == 1;
+            auto c = black ? (alt ? P.rowBlackAlt : P.rowBlack) : (alt ? P.rowWhiteAlt : P.rowWhite);
+            if (i == shownPlayStep) c = P.playhead;
+            g.setColour (c);
+            g.fillRect (cellRect (i, s));
+        }
+        // key labels: naturals on a plate, sharps bare
+        auto key = juce::Rectangle<float> ((float) keyArea.getX(), cellRect (0, s).getY(), (float) keyArea.getWidth() - 4.0f, rowH);
+        if (! black)
+        {
+            g.setColour (P.keyWhite);
+            g.fillRect (key.reduced (0.0f, 0.5f));
+        }
+        g.setColour (black ? P.rollDim : P.keyWhiteText);
+        g.setFont (theme::labelFont (juce::jmin (15.0f, rowH + 3.0f)));
         g.drawText (noteNames[s], key.reduced (4.0f, 0.0f), juce::Justification::centredLeft);
     }
 
-    // beat shading & column lines
     for (int i = 0; i < p.length; ++i)
     {
         const float x = columnX (i);
-        if ((i / 4) % 2 == 1)
-        {
-            g.setColour (juce::Colours::black.withAlpha (0.12f));
-            g.fillRect (juce::Rectangle<float> (x, (float) gridArea.getY(), columnWidth(), (float) gridArea.getHeight()));
-        }
-        g.setColour (i % 4 == 0 ? outline : gridLine);
-        g.drawVerticalLine ((int) x, (float) gridArea.getY(), (float) laneArea.getBottom());
+        g.setColour (P.rollLine);
+        g.fillRect (juce::Rectangle<float> (x, (float) gridArea.getY(), 1.0f, (float) gridArea.getHeight()));
 
-        g.setColour (i % 4 == 0 ? text : textDim);
-        g.setFont (font (10.0f, i % 4 == 0));
+        g.setColour (i == shownPlayStep ? P.acid : (i % 4 == 0 ? P.rollText : P.rollDim));
+        g.setFont (theme::labelFont (16.0f));
         g.drawText (juce::String (i + 1), juce::Rectangle<float> (x, (float) numberArea.getY(), columnWidth(), 16.0f),
                     juce::Justification::centred);
-    }
-    for (int s = 0; s <= numRows; ++s)
-    {
-        g.setColour (gridLine);
-        g.drawHorizontalLine (gridArea.getY() + (int) ((float) s * rowH), (float) gridArea.getX(), (float) gridArea.getRight());
-    }
-
-    // playhead
-    if (shownPlayStep >= 0 && shownPlayStep < p.length)
-    {
-        g.setColour (playhead);
-        g.fillRect (juce::Rectangle<float> (columnX (shownPlayStep), (float) gridArea.getY(), columnWidth(),
-                                            (float) (laneArea.getBottom() - gridArea.getY())));
     }
 }
 
 void PianoRoll::paintNotes (juce::Graphics& g, const Pattern& p)
 {
-    using namespace theme;
+    const auto& P = theme::pal (*this);
 
     auto soundingSemitone = [&] (int i)
     {
@@ -167,13 +154,12 @@ void PianoRoll::paintNotes (juce::Graphics& g, const Pattern& p)
         return 0;
     };
 
-    // tie bars first (so they sit under the note heads)
     for (int i = 0; i < p.length; ++i)
     {
         if (p.effectiveGate (i) != Gate::Tie) continue;
         auto r = cellRect (i, soundingSemitone (i)).reduced (0.0f, 3.0f).withTrimmedRight (2.0f);
         r = r.withLeft (r.getX() - 3.0f);
-        g.setColour (tie.withAlpha (0.85f));
+        g.setColour (P.tie);
         g.fillRect (r);
     }
 
@@ -182,27 +168,28 @@ void PianoRoll::paintNotes (juce::Graphics& g, const Pattern& p)
         const auto& s = p.steps[(size_t) i];
         if (p.effectiveGate (i) != Gate::Note) continue;
 
-        auto r = cellRect (i, s.semitone).reduced (2.0f, 2.0f);
-        // a note followed by a tie visually joins it
+        auto r = cellRect (i, s.semitone).reduced (2.0f, 1.0f);
         if (p[i + 1].gate == Gate::Tie && i + 1 < p.length)
             r = r.withRight (r.getRight() + 2.0f);
 
-        g.setColour (s.accent ? accent : acid);
-        g.fillRoundedRectangle (r, 2.5f);
+        g.setColour (s.accent ? P.accent : P.acid);
+        g.fillRect (r);
+        g.setColour (juce::Colours::black.withAlpha (0.28f));
+        g.fillRect (r.withTop (r.getBottom() - 2.0f));
         if (s.locked)
         {
-            g.setColour (lock);
-            g.drawRoundedRectangle (r.reduced (0.5f), 2.5f, 1.5f);
+            g.setColour (P.lock);
+            g.drawRect (r, 2.0f);
         }
         if (s.octave != 0 && r.getWidth() > 14.0f)
         {
-            g.setColour (background);
-            g.setFont (font (9.5f, true));
+            g.setColour (P.onAcid);
+            g.setFont (theme::labelFont (14.0f));
             g.drawText ((s.octave > 0 ? "+" : "") + juce::String ((int) s.octave), r, juce::Justification::centred);
         }
     }
 
-    // glide lines
+    // glides: stepped pixel lines from note to note
     for (int i = 0; i < p.length; ++i)
     {
         const auto& s = p.steps[(size_t) i];
@@ -215,56 +202,60 @@ void PianoRoll::paintNotes (juce::Graphics& g, const Pattern& p)
         else
             to = from.translated (columnWidth() * 0.5f, 0.0f);
 
-        juce::Path path;
-        path.startNewSubPath (from);
-        const float midX = (from.x + to.x) * 0.5f;
-        path.cubicTo ({ midX, from.y }, { midX, to.y }, to);
-        g.setColour (slide);
-        g.strokePath (path, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (to));
+        g.setColour (P.slide);
+        const int n = 8;
+        for (int k = 0; k <= n; ++k)
+        {
+            const float t = (float) k / n;
+            const float e = t * t * (3.0f - 2.0f * t);
+            g.fillRect (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * e }));
+        }
     }
 }
 
 void PianoRoll::paintLanes (juce::Graphics& g, const Pattern& p)
 {
-    using namespace theme;
+    const auto& P = theme::pal (*this);
     for (int lane = 0; lane < numLanes; ++lane)
     {
-        auto label = juce::Rectangle<float> ((float) keyArea.getX(), (float) (laneArea.getY() + lane * 20),
-                                             (float) keyArea.getWidth() - 4.0f, 20.0f);
-        g.setColour (textDim);
-        g.setFont (font (9.5f, true));
+        auto label = juce::Rectangle<float> ((float) keyArea.getX(), (float) (laneArea.getY() + lane * laneH),
+                                             (float) keyArea.getWidth() - 4.0f, (float) laneH);
+        g.setColour (P.rollDim);
+        g.setFont (theme::labelFont (15.0f));
         g.drawText (laneNames[lane], label.reduced (2.0f, 0.0f), juce::Justification::centredLeft);
-        g.setColour (gridLine);
-        g.drawHorizontalLine (laneArea.getY() + lane * 20, (float) gridArea.getX(), (float) gridArea.getRight());
 
         for (int i = 0; i < p.length; ++i)
         {
             const auto& s = p.steps[(size_t) i];
-            auto cell = laneCell (lane, i).reduced (3.0f, 4.0f);
+            auto cell = laneCell (lane, i).reduced (3.0f, 3.0f);
             const auto lt = static_cast<Lane> (lane + 1);
 
             bool on = false;
             juce::Colour c;
             switch (lt)
             {
-                case Lane::Accent: on = s.accent; c = accent; break;
-                case Lane::Slide:  on = s.slide;  c = slide; break;
-                case Lane::Tie:    on = s.gate == Gate::Tie; c = tie; break;
-                case Lane::Lock:   on = s.locked; c = lock; break;
+                case Lane::Accent: on = s.accent; c = P.accent; break;
+                case Lane::Slide:  on = s.slide;  c = P.slide; break;
+                case Lane::Tie:    on = s.gate == Gate::Tie; c = P.tie; break;
+                case Lane::Lock:   on = s.locked; c = P.lock; break;
                 case Lane::Octave:
                 {
-                    g.setColour (s.octave == 0 ? outline : acid);
-                    g.setFont (font (10.0f, true));
+                    g.setColour (P.laneOff);
+                    g.fillRect (cell);
+                    g.setColour (P.laneEdge);
+                    g.drawRect (cell, 1.0f);
+                    g.setColour (s.octave == 0 ? P.rollDim : P.acid);
+                    g.setFont (theme::labelFont (16.0f));
                     g.drawText (s.octave == 0 ? juce::String ("-") : (s.octave > 0 ? "+" : "") + juce::String ((int) s.octave),
                                 cell, juce::Justification::centred);
                     continue;
                 }
                 case Lane::None: break;
             }
-            g.setColour (on ? c : outline.withAlpha (0.5f));
-            if (on) g.fillRoundedRectangle (cell, 2.0f);
-            else g.drawRoundedRectangle (cell, 2.0f, 1.0f);
+            g.setColour (on ? c : P.laneOff);
+            g.fillRect (cell);
+            g.setColour (on ? juce::Colours::black.withAlpha (0.35f) : P.laneEdge);
+            g.drawRect (cell, 1.0f);
         }
     }
 }

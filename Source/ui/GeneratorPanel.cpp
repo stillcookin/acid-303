@@ -47,13 +47,8 @@ GeneratorPanel::GeneratorPanel (UiContext c) : ctx (c)
     addButton (undoButton, "UNDO", "Undo", [&pc] { pc.undo(); });
     addButton (redoButton, "REDO", "Redo", [&pc] { pc.redo(); });
     addButton (clearButton, "CLR", "Clear unlocked steps", [&pc] { pc.clearPattern(); });
-    generateButton.setColour (juce::TextButton::buttonColourId, theme::acid);
-    generateButton.setColour (juce::TextButton::textColourOffId, theme::background);
-
     seedLabel.setEditable (false, true, false);
     seedLabel.setJustificationType (juce::Justification::centred);
-    seedLabel.setColour (juce::Label::backgroundColourId, theme::panelRaised);
-    seedLabel.setColour (juce::Label::outlineColourId, theme::outline);
     seedLabel.setTooltip ("Seed of the last generated pattern. Double-click to type a seed and recall it.");
     seedLabel.onTextChange = [this]
     {
@@ -127,17 +122,31 @@ void GeneratorPanel::pushSettings()
     ctx.patterns.setGeneratorSettings (gs);
 }
 
+void GeneratorPanel::lookAndFeelChanged()
+{
+    const auto& p = theme::pal (*this);
+    generateButton.setColour (juce::TextButton::buttonColourId, p.acid);
+    generateButton.setColour (juce::TextButton::textColourOffId, p.onAcid);
+    seedLabel.setColour (juce::Label::backgroundColourId, p.rollBg);
+    seedLabel.setColour (juce::Label::textColourId, p.acid);
+    seedLabel.setColour (juce::Label::outlineColourId, p.panelLo);
+    seedLabel.setFont (theme::labelFont (18.0f));
+    repaint();
+}
+
 void GeneratorPanel::paint (juce::Graphics& g)
 {
-    using namespace theme;
-    g.setColour (panel);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), corner);
-    g.setColour (outline);
-    g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), corner, 1.0f);
-    g.setColour (textDim);
-    g.setFont (font (11.5f, true));
-    g.drawText ("PATTERN GENERATOR", getLocalBounds().reduced (10, 0).removeFromTop (24), juce::Justification::centredLeft);
+    const auto& p = theme::pal (*this);
+    theme::pixelPanel (g, getLocalBounds(), p.panel, p.panelHi, p.panelLo, p.edge);
 
+    const auto world = ctx.patterns.world();
+    const char* title = world == World::Space ? "STAR CHART" : (world == World::Underground ? "CORE SURVEY" : "PATTERN GENERATOR");
+    g.setColour (p.title);
+    g.setFont (theme::titleFont (8.0f));
+    g.drawText (title, getLocalBounds().reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft);
+
+    g.setColour (p.textDim);
+    g.setFont (theme::labelFont (16.0f));
     for (auto& k : knobs)
         g.drawText (k.caption, k.slider.getBounds().withY (k.slider.getBottom()).withHeight (14),
                     juce::Justification::centred);

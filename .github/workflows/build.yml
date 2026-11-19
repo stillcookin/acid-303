@@ -48,7 +48,7 @@ jobs:
           cmake -E tar xf pluginval.zip
           chmod +x pluginval
           xvfb-run -a ./pluginval --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process \
-            --validate build/Acid303_artefacts/$BUILD_TYPE/VST3/Acid303.vst3
+            --validate build/Acid303_artefacts/$BUILD_TYPE/VST3/Rungs.vst3
 
       - uses: actions/upload-artifact@v4
         with:
@@ -86,9 +86,9 @@ jobs:
       - name: Ad-hoc code sign (macOS)
         if: runner.os == 'macOS'
         run: |
-          for b in build/Acid303_artefacts/$BUILD_TYPE/VST3/Acid303.vst3 \
-                   build/Acid303_artefacts/$BUILD_TYPE/AU/Acid303.component \
-                   build/Acid303_artefacts/$BUILD_TYPE/Standalone/Acid303.app; do
+          for b in build/Acid303_artefacts/$BUILD_TYPE/VST3/Rungs.vst3 \
+                   build/Acid303_artefacts/$BUILD_TYPE/AU/Rungs.component \
+                   build/Acid303_artefacts/$BUILD_TYPE/Standalone/Rungs.app; do
             codesign --force --deep --sign - "$b"
           done
 
@@ -96,7 +96,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R build/Acid303_artefacts/$BUILD_TYPE/AU/Acid303.component ~/Library/Audio/Plug-Ins/Components/
+          cp -R build/Acid303_artefacts/$BUILD_TYPE/AU/Rungs.component ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
           auval -v aumu Ac3d Acdl
 
@@ -112,21 +112,21 @@ jobs:
             PV=./pluginval.exe
           fi
           $PV --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process \
-            --validate build/Acid303_artefacts/$BUILD_TYPE/VST3/Acid303.vst3
+            --validate build/Acid303_artefacts/$BUILD_TYPE/VST3/Rungs.vst3
 
       - name: Package
         run: |
           mkdir -p dist
           cd build/Acid303_artefacts/$BUILD_TYPE
           if [ "$RUNNER_OS" == "macOS" ]; then
-            cmake -E tar cf ../../../dist/Acid303-macOS.zip --format=zip VST3/Acid303.vst3 AU/Acid303.component Standalone/Acid303.app
+            cmake -E tar cf ../../../dist/Rungs-macOS.zip --format=zip VST3/Rungs.vst3 AU/Rungs.component Standalone/Rungs.app
           else
-            cmake -E tar cf ../../../dist/Acid303-Windows.zip --format=zip VST3/Acid303.vst3 Standalone/Acid303.exe
+            cmake -E tar cf ../../../dist/Rungs-Windows.zip --format=zip VST3/Rungs.vst3 Standalone/Rungs.exe
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Acid303-${{ matrix.name }}
+          name: Rungs-${{ matrix.name }}
           path: dist/*.zip
 
   release:
@@ -140,7 +140,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: Acid303-*
+          pattern: Rungs-*
           merge-multiple: true
 
       - uses: softprops/action-gh-release@v2

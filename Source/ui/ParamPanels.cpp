@@ -42,8 +42,8 @@ void ParamControl::paint (juce::Graphics& g)
 {
     if (getKind() == ParamSpec::Kind::Bool || ! showCaption)
         return;
-    g.setColour (theme::textDim);
-    g.setFont (theme::font (11.0f, true));
+    g.setColour (theme::pal (*this).textDim);
+    g.setFont (theme::labelFont (16.0f));
     auto area = getKind() == ParamSpec::Kind::Float ? slider.getBounds() : combo.getBounds();
     g.drawText (caption,
                 juce::Rectangle<int> (0, area.getBottom() + 1, getWidth(), 14), juce::Justification::centred, false);
@@ -103,15 +103,11 @@ ParamControl* ParamSection::controlFor (Param p)
 
 void ParamSection::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds().toFloat();
-    g.setColour (theme::panel);
-    g.fillRoundedRectangle (r, theme::corner);
-    g.setColour (theme::outline);
-    g.drawRoundedRectangle (r.reduced (0.5f), theme::corner, 1.0f);
-
-    g.setColour (theme::textDim);
-    g.setFont (theme::font (11.5f, true));
-    g.drawText (title, getLocalBounds().reduced (10, 0).removeFromTop (24), juce::Justification::centredLeft);
+    const auto& p = theme::pal (*this);
+    theme::pixelPanel (g, getLocalBounds(), p.panel, p.panelHi, p.panelLo, p.edge);
+    g.setColour (p.title);
+    g.setFont (theme::titleFont (8.0f));
+    g.drawText (title, getLocalBounds().reduced (12, 0).removeFromTop (26), juce::Justification::centredLeft, true);
 }
 
 void ParamSection::resized()
@@ -119,7 +115,7 @@ void ParamSection::resized()
     auto r = getLocalBounds().reduced (6, 0);
     auto header = r.removeFromTop (24);
     if (enableToggle)
-        enableToggle->setBounds (header.removeFromRight (48).reduced (0, 3));
+        enableToggle->setBounds (header.removeFromRight (58).reduced (0, 3).translated (-3, 2));
     r.removeFromBottom (6);
 
     std::vector<ParamControl*> knobs, others;

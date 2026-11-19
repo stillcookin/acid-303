@@ -104,3 +104,26 @@ TEST_CASE ("Slots are independent and state round-trips", "[controller]")
     fromXml.fromValueTree (juce::ValueTree::fromXml (*xml));
     REQUIRE (fromXml.pattern() == pc.pattern());
 }
+
+TEST_CASE ("Duplicate doubles the pattern with one undo step", "[controller]")
+{
+    PatternMailbox mb;
+    PatternController pc (mb);
+    pc.setLength (8);
+    const auto before = pc.pattern();
+    pc.duplicate();
+    REQUIRE (pc.pattern().length == 16);
+    for (int i = 0; i < 8; ++i)
+    {
+        REQUIRE (pc.pattern().steps[(size_t) i] == before.steps[(size_t) i]);
+        REQUIRE (pc.pattern().steps[(size_t) (i + 8)] == before.steps[(size_t) i]);
+    }
+    pc.duplicate();
+    REQUIRE (pc.pattern().length == 32);
+    pc.duplicate(); // 64 would not fit: unchanged
+    REQUIRE (pc.pattern().length == 32);
+    pc.undo();
+    REQUIRE (pc.pattern().length == 16);
+    pc.undo();
+    REQUIRE (pc.pattern() == before);
+}
