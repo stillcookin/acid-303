@@ -51,6 +51,11 @@ private:
     };
 
     void collectMidi (const juce::MidiBuffer& midi, int start, int len);
+    void scanWorldMidi (const juce::MidiBuffer& midi, int start, int len);
+    void requestWorld (World w, bool fromMidi);
+    void applyWorld (World w);
+    dsp::VoiceParams voiceParams() const;
+    const Pattern& currentPattern() const { return patterns[(size_t) indexOf (activeWorld)]; }
     void addEvent (const VoiceEvent& e);
     void sortEvents();
     void applyEvent (const VoiceEvent& e);
@@ -60,7 +65,12 @@ private:
     LiveState& live;
 
     EngineParams params = EngineParams::defaults();
-    Pattern pattern;
+    WorldPatterns patterns {};
+
+    // worlds: the parameter (or incoming MIDI) requests, the engine applies on the beat/bar
+    World activeWorld = World::Classic, lastParamWorld = World::Classic;
+    std::optional<World> pendingWorld;
+    bool worldInitialised = false;
     Sequencer sequencer;
     dsp::Voice303 voice;
     dsp::Overdrive drive;

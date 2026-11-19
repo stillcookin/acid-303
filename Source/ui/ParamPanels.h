@@ -23,6 +23,9 @@ public:
     void paint (juce::Graphics&) override;
 
     void setShowCaption (bool show) { showCaption = show; resized(); repaint(); }
+    /** Replaces the caption from ParamSpec (e.g. a knob whose role depends on the world). */
+    void setCaption (const juce::String& c) { if (c != caption) { caption = c; repaint(); } }
+    void setTooltip (const juce::String& t) { slider.setTooltip (t); combo.setTooltip (t); toggle.setTooltip (t); }
     Param getParam() const { return param; }
     ParamSpec::Kind getKind() const { return specOf (param).kind; }
 
@@ -33,6 +36,7 @@ private:
 
     Param param;
     bool showCaption = true;
+    juce::String caption;
     juce::Slider slider;
     juce::ComboBox combo;
     juce::ToggleButton toggle;
@@ -51,6 +55,9 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+
+    /** The control for `p`, or nullptr if this section has none. */
+    ParamControl* controlFor (Param p);
 
 private:
     juce::String title;

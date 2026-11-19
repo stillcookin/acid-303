@@ -14,7 +14,8 @@ namespace acid::ui
     The editor scales it, so all layout here is in fixed design units.
     To redesign the front end, replace this class (or the whole ui/ folder);
     it only depends on UiContext. */
-class MainView final : public juce::Component
+class MainView final : public juce::Component,
+                       private juce::Timer
 {
 public:
     explicit MainView (UiContext ctx);
@@ -24,6 +25,10 @@ public:
     void resized() override;
 
 private:
+    void timerCallback() override;
+
+    UiContext ctx;
+    int shownWorld = -1;
     AcidLookAndFeel lnf;
     juce::TooltipWindow tooltips { this, 600 };
 

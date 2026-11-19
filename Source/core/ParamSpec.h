@@ -22,6 +22,8 @@ enum class Param : int
     DelayOn, DelayTime, DelayFeedback, DelayTone, DelayMix, DelayPingPong,
     // FX: reverb
     ReverbOn, ReverbSize, ReverbDamp, ReverbMix,
+    // World (appended: IDs and saved sets stay compatible)
+    World, WorldQuantize, WorldMidi,
 
     Count
 };
@@ -36,7 +38,7 @@ struct ParamSpec
     Kind kind;
     const char* id;     ///< stable string ID, used for host automation & state; never rename
     const char* name;   ///< display name
-    const char* group;  ///< "voice", "seq", "drive", "delay", "reverb"
+    const char* group;  ///< "voice", "seq", "drive", "delay", "reverb", "world"
     float minValue = 0.0f;
     float maxValue = 1.0f;
     float defaultValue = 0.0f;

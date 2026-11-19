@@ -9,6 +9,7 @@ ParamControl::ParamControl (juce::AudioProcessorValueTreeState& state, Param p) 
 {
     const auto& spec = specOf (p);
     setTitle (spec.name);
+    caption = juce::String (spec.name).toUpperCase();
 
     switch (spec.kind)
     {
@@ -44,7 +45,7 @@ void ParamControl::paint (juce::Graphics& g)
     g.setColour (theme::textDim);
     g.setFont (theme::font (11.0f, true));
     auto area = getKind() == ParamSpec::Kind::Float ? slider.getBounds() : combo.getBounds();
-    g.drawText (juce::String (specOf (param).name).toUpperCase(),
+    g.drawText (caption,
                 juce::Rectangle<int> (0, area.getBottom() + 1, getWidth(), 14), juce::Justification::centred, false);
 }
 
@@ -90,6 +91,14 @@ ParamSection::ParamSection (juce::AudioProcessorValueTreeState& state, juce::Str
         enableAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
             state, idOf (*enableParam), *enableToggle);
     }
+}
+
+ParamControl* ParamSection::controlFor (Param p)
+{
+    for (auto& c : controls)
+        if (c->getParam() == p)
+            return c.get();
+    return nullptr;
 }
 
 void ParamSection::paint (juce::Graphics& g)

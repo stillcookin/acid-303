@@ -40,7 +40,7 @@ private:
     void refresh();
 
     UiContext ctx;
-    ParamControl mode;
+    ParamControl mode, world;
     std::array<juce::TextButton, PatternBank::numSlots> slotButtons;
     juce::ComboBox lengthBox;
     juce::TextButton previewButton { "PREVIEW" };

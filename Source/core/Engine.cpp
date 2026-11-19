@@ -40,6 +40,8 @@ void Engine::reset()
     sequencer.reset();
     numHeld = 0;
     previewWasOn = false;
+    pendingWorld.reset();
+    live.pendingWorld = -1;
     live.playingStep = -1;
     live.running = false;
 }
@@ -61,6 +63,57 @@ void Engine::sortEvents()
                       [] (const VoiceEvent& a, const VoiceEvent& b) { return a.offset < b.offset; });
 }
 
+dsp::VoiceParams Engine::voiceParams() const
+{
+    return { params.tune, params.waveform, params.cutoff, params.resonance,
+             params.envMod, params.decay, params.accent, params.drift, indexOf (activeWorld) };
+}
+
+void Engine::requestWorld (World w, bool fromMidi)
+{
+    if (fromMidi)
+    {
+        live.midiWorldRequest = indexOf (w);
+        live.midiWorldSerial.fetch_add (1);
+    }
+    if (w == activeWorld)
+        pendingWorld.reset();
+    else
+        pendingWorld = w;
+    live.pendingWorld = pendingWorld ? indexOf (*pendingWorld) : -1;
+}
+
+void Engine::applyWorld (World w)
+{
+    activeWorld = w;
+    pendingWorld.reset();
+    voice.setParams (voiceParams());
+    live.world = indexOf (w);
+    live.pendingWorld = -1;
+}
+
+void Engine::scanWorldMidi (const juce::MidiBuffer& midi, int start, int len)
+{
+    // world switching from MIDI: CC 102, program change 0-2, keyswitch notes 0-2
+    if (! params.worldMidi)
+        return;
+    for (const auto meta : midi)
+    {
+        if (meta.samplePosition < start || meta.samplePosition >= start + len)
+            continue;
+        const auto msg = meta.getMessage();
+        std::optional<World> req;
+        if (msg.isController())
+            req = WorldMidi::fromController (msg.getControllerNumber(), msg.getControllerValue());
+        else if (msg.isProgramChange())
+            req = WorldMidi::fromProgramChange (msg.getProgramChangeNumber());
+        else if (msg.isNoteOn())
+            req = WorldMidi::fromKeyswitch (msg.getNoteNumber());
+        if (req)
+            requestWorld (*req, true);
+    }
+}
+
 void Engine::collectMidi (const juce::MidiBuffer& midi, int start, int len)
 {
     for (const auto meta : midi)
@@ -78,6 +131,10 @@ void Engine::collectMidi (const juce::MidiBuffer& midi, int start, int len)
                 addEvent ({ off, 2, 0, false, false });
             continue;
         }
+
+        // keyswitches (handled in scanWorldMidi) never play or transpose
+        if (params.worldMidi && msg.isNoteOnOrOff() && WorldMidi::isKeyswitch (msg.getNoteNumber()))
+            continue;
 
         if (params.mode == PlayMode::Midi)
         {
@@ -142,11 +199,23 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
     if (total <= 0 || oversampler == nullptr)
         return;
 
-    mailbox.pull (pattern);
+    mailbox.pull (patterns);
+
+    // world parameter: the first block adopts it, later changes are requests
+    if (! worldInitialised)
+    {
+        worldInitialised = true;
+        lastParamWorld = params.world;
+        applyWorld (params.world);
+    }
+    else if (params.world != lastParamWorld)
+    {
+        lastParamWorld = params.world;
+        requestWorld (params.world, false);
+    }
 
     // per-block parameter updates
-    voice.setParams ({ params.tune, params.waveform, params.cutoff, params.resonance,
-                       params.envMod, params.decay, params.accent, params.drift });
+    voice.setParams (voiceParams());
     drive.setParams (params.drive, params.driveTone, params.driveOn ? params.driveMix : 0.0f);
     sequencer.setSwing (params.swing);
     sequencer.setGate (params.gate);
@@ -169,12 +238,10 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
     if (host.has_value() && host->bpm > 0.0)
         lastBpm = host->bpm;
 
-    for (int start = 0; start < total; start += maxBlock)
+    for (int start = 0; start < total;)
     {
-        const int n = std::min (maxBlock, total - start);
+        int n = std::min (maxBlock, total - start);
         numEvents = 0;
-
-        collectMidi (midi, start, n);
 
         // ---- transport: host, internal preview clock, or stopped
         const bool preview = ! hostPlaying && live.previewRequested.load();
@@ -193,13 +260,37 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
         }
         previewWasOn = preview;
         t.sampleRate = sampleRate;
-        t.numSamples = n;
         t.bpm = t.bpm > 0.0 ? t.bpm : lastBpm;
+        const bool clockRunning = t.isPlaying;
+
+        // ---- worlds: sub-blocks end on beat/bar lines so a pending switch lands exactly on one
+        const bool quantized = clockRunning && params.worldQuantize != WorldQuantize::Immediate;
+        bool atBoundary = false;
+        if (quantized)
+        {
+            const double div = params.worldQuantize == WorldQuantize::Bar ? 4.0 : 1.0;
+            const double samplesPerBeat = sampleRate * 60.0 / t.bpm;
+            const double phase = t.ppqPosition - std::floor (t.ppqPosition / div) * div;
+            atBoundary = phase * samplesPerBeat < 1.0;
+            const double toNext = (div - phase) * samplesPerBeat;
+            if (! atBoundary && toNext < (double) n)
+                n = std::max (1, (int) std::ceil (toNext));
+        }
+        if (pendingWorld && (! quantized || atBoundary))
+            applyWorld (*pendingWorld);
+
+        scanWorldMidi (midi, start, n);
+        if (pendingWorld && ! quantized)
+            applyWorld (*pendingWorld);
+
+        t.numSamples = n;
         if (params.mode == PlayMode::Midi)
             t.isPlaying = false;
 
+        collectMidi (midi, start, n);
+
         sequencer.setTranspose (transpose);
-        const int ns = sequencer.process (pattern, t, seqEvents.data(), maxEvents);
+        const int ns = sequencer.process (currentPattern(), t, seqEvents.data(), maxEvents);
         for (int i = 0; i < ns; ++i)
         {
             const auto& e = seqEvents[(size_t) i];
@@ -208,7 +299,7 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
         sortEvents();
 
         live.running = t.isPlaying;
-        live.playingStep = t.isPlaying ? sequencer.stepAt (pattern, t.ppqPosition) : -1;
+        live.playingStep = t.isPlaying ? sequencer.stepAt (currentPattern(), t.ppqPosition) : -1;
 
         if (preview)
             previewPpq += (double) n * (t.bpm / 60.0) / sampleRate;
@@ -265,6 +356,8 @@ void Engine::process (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& 
             buffer.copyFrom (0, start, L, n, 0.5f);
             buffer.addFrom (0, start, R, n, 0.5f);
         }
+
+        start += n;
     }
 
     live.outputPeak = peak;
